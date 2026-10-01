@@ -7,21 +7,27 @@ icon: "icons/icon.png"
 #
 # 每个 profile 会打出一个独立的安装包；profile 名会出现在文件名里，
 # 例如 ok-naruto-win32-Global-setup.exe。
+#
+# ⚠️ 第一条 profile 必须写全所有字段！
+#    pyappify 的 apply_profile_inheritance() 只会从 profiles[0] 继承：
+#        if profile.requires_python.is_empty():
+#            profile.requires_python = first_profile.requires_python.clone()
+#    也就是说后面的 profile 可以省略字段，但**第一条不能**。
+#    曾经把带全字段的 China profile 注释掉、只留精简版的 Global，
+#    结果 Global 变成 profiles[0] 且 requires_python 为空，
+#    打包时卡在「安装 Python」直接失败。
+#    tests/TestRelease.py 里有对应用例守着这个坑。
 profiles:
   # ---- 默认包：更新源走 GitHub 更新库 ----
   - name: "Global"
     git_url: "https://github.com/NYTN02/ok-naruto-update.git"
+    admin: true
     main_script: "main.py"
+    requires_python: "3.12"
     requirements: "requirements.txt"
-
-  # ---- Web UI 包（可选，本项目是 Qt 桌面应用，用不到就别启用）----
-  # 启用后需要 requirements-web.txt，并会多出一个 ok-naruto-win32-Web-setup.exe。
-  # - name: "Web"
-  #   main_script: "web_main.py"
-  #   requires_python: "3.12"
-  #   requirements: "requirements-web.txt"
-  #   pip_args: "--no-deps"
-  #   use_pythonw: true
+    pip_args: "--no-deps"
+    use_pythonw: true
+    show_add_defender: true
 
   # ---- 国内镜像包（可选）----
   # CNB = cnb.cool（腾讯云的代码托管 + 云原生构建），社区版是「免费额度 + 超额按量」：
@@ -33,12 +39,21 @@ profiles:
   # 启用步骤：注册 cnb.cool -> 建一个公开仓库 -> 生成访问令牌 ->
   # 在 GitHub 仓库 Secrets 里加 CNB_TOKEN -> 取消下面的注释并改地址；
   # 同时 build.yml 里 Sync Repositories 的 repos 也要加上 CNB 那一行。
+  # 注意：这条在 Global 之后，所以可以省略字段（会继承 Global 的值）。
   # - name: "China"
   #   git_url: "https://cnb.cool/NYTN02/ok-naruto.git"
   #   admin: true
   #   main_script: "main.py"
   #   requires_python: "3.12"
   #   requirements: "requirements.txt"
-  #   use_pythonw: true
   #   pip_args: "--no-deps"
+  #   use_pythonw: true
   #   show_add_defender: true
+
+  # ---- Web UI 包（可选，本项目是 Qt 桌面应用，用不到就别启用）----
+  # - name: "Web"
+  #   main_script: "web_main.py"
+  #   requires_python: "3.12"
+  #   requirements: "requirements-web.txt"
+  #   pip_args: "--no-deps"
+  #   use_pythonw: true

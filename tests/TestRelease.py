@@ -18,6 +18,11 @@ import json
 import os
 import unittest
 
+try:
+    import yaml
+except ImportError:  # pyyaml 只是打包配置检查用，缺了不该让整个门禁挂掉
+    yaml = None
+
 import src.config as app_config
 from src.tasks.combat_ui import (
     CORE_BUTTONS,
@@ -152,6 +157,62 @@ class TestDailyTask(unittest.TestCase):
         for name in ('TestTask', 'DebugSendKeyTask', 'DebugKeyTask', 'MyOneTimeTask'):
             self.assertNotIn(name, self.registered,
                              f'{name} 是开发/演示用任务，不应注册到发布版 config')
+
+
+class TestPackagingConfig(unittest.TestCase):
+    """打包配置的完整性。
+
+    踩过的坑：pyappify 的 apply_profile_inheritance() 只从 profiles[0] 继承字段：
+        if profile.requires_python.is_empty():
+            profile.requires_python = first_profile.requires_python.clone()
+    后面的 profile 可以省略字段，但**第一条必须写全**。
+    当时把带全字段的 China profile 注释掉、只留精简版 Global，
+    于是 Global 成了 profiles[0] 且 requires_python 为空，
+    GitHub Actions 卡在「安装 Python」失败，白白发了一次版。
+    """
+
+    # profiles[0] 必须显式给出的字段（空值就等于没配）
+    REQUIRED_FIRST_PROFILE_FIELDS = (
+        'name', 'git_url', 'main_script', 'requirements',
+        'requires_python', 'pip_args',
+    )
+
+    @classmethod
+    def setUpClass(cls):
+        path = os.path.join('pyappify.yml')
+        if yaml is None:
+            raise unittest.SkipTest('未安装 pyyaml，跳过打包配置检查')
+        with open(path, encoding='utf-8') as f:
+            cls.cfg = yaml.safe_load(f)
+
+    def test_first_profile_is_complete(self):
+        profiles = self.cfg.get('profiles') or []
+        self.assertTrue(profiles, 'pyappify.yml 里没有任何 profile')
+        first = profiles[0]
+        missing = []
+        for field in self.REQUIRED_FIRST_PROFILE_FIELDS:
+            value = first.get(field)
+            if value is None or (isinstance(value, str) and not value.strip()):
+                missing.append(field)
+        self.assertEqual(
+            [], missing,
+            f'pyappify.yml 的 profiles[0] 缺少必需字段 {missing}；'
+            f'它不会从别的 profile 继承，缺失会导致打包失败',
+        )
+
+    def test_icon_files_exist(self):
+        # pyappify-action 要求 icons/ 里同时有 icon.ico 和 icon.png
+        for name in ('icons/icon.ico', 'icons/icon.png'):
+            self.assertTrue(os.path.isfile(name), f'缺少图标文件 {name}')
+
+    def test_profile_names_unique(self):
+        names = [p.get('name') for p in self.cfg.get('profiles') or []]
+        self.assertEqual(len(names), len(set(names)), 'pyappify.yml 有重名 profile')
+
+    def test_app_name_is_ascii(self):
+        # pyappify 的 name 会进文件名，README 明确写了 English only
+        name = self.cfg.get('name') or ''
+        self.assertTrue(name.isascii(), f'pyappify.yml 的 name 必须是纯英文: {name!r}')
 
 
 if __name__ == '__main__':
