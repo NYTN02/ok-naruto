@@ -8,6 +8,7 @@ icons
 requirements.txt
 requirements-web.txt
 README.md
+LICENSE
 i18n
 assets
 pyappify.yml

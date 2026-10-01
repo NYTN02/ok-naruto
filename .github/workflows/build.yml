@@ -84,19 +84,22 @@ jobs:
         id: sync   # Give the step an ID to access its outputs
         uses: ok-oldking/partial-sync-repo@master
         with:
-          # 前置条件：
-          #   1) 空仓库 https://github.com/NYTN02/ok-naruto-update 已建好，
-          #      且本仓库 Secrets 里有 OK_GH（有 repo 权限的 PAT）
-          #   2) 启用 CNB 国内镜像时：CNB 上建好公开仓库、Secrets 里加 CNB_TOKEN、
-          #      pyappify.yml 里取消 China profile 的注释，然后在下面 repos 里
-          #      追加一行（把 <组织名> 换成你的 CNB 组织名）：
-          #          https://cnb:${{ secrets.CNB_TOKEN }}@cnb.cool/<组织名>/ok-naruto.git
+          # 同步目标：
+          #   * GitHub 更新库（Global 包的更新源）—— 需要 OK_GH
+          #   * CNB 仓库（China 包的更新源）—— 需要 CNB_TOKEN
           #
           # ⚠️ repos 是块文本（| 之后的缩进内容），里面的 # 是数据不是注释。
           #    所以只能写真实地址；不要往里塞"注释行"，否则会被当成仓库地址
-          #    传给 action 导致同步失败。要加 CNB 就真加一行。
+          #    传给 action 导致同步失败。要临时停用某一行就整行删掉。
+          #
+          # 对应的两个 secret 必须在
+          # Settings -> Secrets and variables -> Actions 里配好：
+          #   OK_GH     : 对 ok-naruto-update 有 Contents: Read and write 的 PAT
+          #   CNB_TOKEN : CNB 访问令牌（用户名固定为 cnb，见 CNB 文档），
+          #               授权范围要含仓库读写
           repos: |
             https://NYTN02:${{ secrets.OK_GH }}@github.com/NYTN02/ok-naruto-update.git
+            https://cnb:${{ secrets.CNB_TOKEN }}@cnb.cool/NekoBoxNeko/ok-naruto.git
           sync_list: 'deploy.txt'
           tag: ${{ github.ref_name }}
           gitignore_file: '.update_repo_gitignore'
@@ -117,8 +120,12 @@ jobs:
             ###  更新日志 ${{ steps.sync.outputs.start_tag }} -> ${{ steps.sync.outputs.end_tag }}:
               ${{ steps.sync.outputs.changes_with_asterisk }}          
             ### 下载包说明
-              * [ok-naruto-win32-Global-setup.exe](https://github.com/NYTN02/ok-naruto/releases/download/${{ github.ref_name }}/ok-naruto-win32-Global-setup.exe) 完整安装包，更新源走 GitHub
+              * [ok-naruto-win32-China-setup.exe](https://github.com/NYTN02/ok-naruto/releases/download/${{ github.ref_name }}/ok-naruto-win32-China-setup.exe) **国内用户推荐**，更新源走腾讯 CNB，下载和自动更新都更快
+              * [ok-naruto-win32-Global-setup.exe](https://github.com/NYTN02/ok-naruto/releases/download/${{ github.ref_name }}/ok-naruto-win32-Global-setup.exe) 更新源走 GitHub，适合能顺畅访问 GitHub 的用户
+              * 不要下载 `ok-naruto-win32.zip`，那是下次构建用的加速缓存，运行不了
             ### 使用前提
               * 需要 MuMu 模拟器 12，分辨率设为 1600x900（或其它 16:9）
+              * 游戏内按键布局保持默认
+              * 从游戏主页面运行，并先关掉活动弹窗
               * 模拟器需开启 ADB 调试；脚本通过 ADB/IPC 与模拟器通信
           files: pyappify_dist/*

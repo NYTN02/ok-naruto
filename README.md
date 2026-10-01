@@ -180,3 +180,13 @@ ok-naruto.exe -t 1 -e
 * [ok-oldking/ok-script](https://github.com/ok-oldking/ok-script)
 * [ok-oldking/OnnxOCR](https://github.com/ok-oldking/OnnxOCR)
 * [zhiyiYo/PyQt-Fluent-Widgets](https://github.com/zhiyiYo/PyQt-Fluent-Widgets)
+
+## 📄 许可证
+
+本项目采用 **GNU Affero General Public License v3.0 (AGPL-3.0)**，完整条款见 [LICENSE](LICENSE)。
+
+简单说：你可以自由使用、修改、分发本项目，但**修改后的版本如果对外分发，也必须以 AGPL-3.0 开源**。
+如果你把本项目的代码整合进自己的项目并提供给他人，同样需要开源你的完整源码。
+
+> 注意：许可证只约束**代码**的使用与分发，不改变上面免责声明里关于游戏账号风险的说明。
+

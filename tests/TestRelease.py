@@ -200,10 +200,44 @@ class TestPackagingConfig(unittest.TestCase):
             f'它不会从别的 profile 继承，缺失会导致打包失败',
         )
 
+    def test_every_profile_declares_its_own_git_url(self):
+        """每个 profile 必须**显式**写 git_url。
+
+        pyappify 的 apply_profile_inheritance() 对空字段会继承 profiles[0]：
+            if profile.git_url.is_empty() { profile.git_url = first_profile.git_url }
+        如果 China profile 漏写 git_url，它会静默继承 Global 的
+        GitHub 更新库地址 —— 包名还叫 China，更新源却指向 GitHub，
+        国内镜像就白做了，而且很难发现。
+        """
+        for profile in self.cfg.get('profiles') or []:
+            name = profile.get('name')
+            url = profile.get('git_url')
+            self.assertTrue(
+                url and str(url).strip(),
+                f'profile "{name}" 没有显式写 git_url；'
+                f'它会继承 profiles[0] 的地址，可能导致更新源指错',
+            )
+            self.assertIn('://', str(url), f'profile "{name}" 的 git_url 不像个地址: {url!r}')
+
     def test_icon_files_exist(self):
         # pyappify-action 要求 icons/ 里同时有 icon.ico 和 icon.png
         for name in ('icons/icon.ico', 'icons/icon.png'):
             self.assertTrue(os.path.isfile(name), f'缺少图标文件 {name}')
+
+    def test_license_file_present_and_is_agpl(self):
+        """LICENSE 必须在，且确实是 AGPL-3.0 全文。
+
+        AGPL 要求分发时附带许可证，所以 deploy.txt 里也要同步它。
+        """
+        self.assertTrue(os.path.isfile('LICENSE'), '缺少 LICENSE 文件')
+        with open('LICENSE', encoding='utf-8') as f:
+            text = f.read()
+        self.assertIn('GNU AFFERO GENERAL PUBLIC LICENSE', text)
+        self.assertIn('Version 3', text)
+        # AGPL 区别于 GPL 的关键条款（通过网络提供服务也要提供源码）
+        self.assertIn('Remote Network Interaction', text)
+        # 许可证必须随代码一起分发给用户
+        self.assertIn('LICENSE', open('deploy.txt', encoding='utf-8').read().split())
 
     def test_profile_names_unique(self):
         names = [p.get('name') for p in self.cfg.get('profiles') or []]

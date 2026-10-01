@@ -149,3 +149,13 @@ Packaging is done by GitHub Actions on a `v*` tag — see [RELEASE.md](RELEASE.m
 * [ok-script-app](https://github.com/ok-oldking/ok-script-app) — the project template this repo started from
 * [ok-ww](https://github.com/ok-oldking/ok-wuthering-waves) — architecture reference
 * [narutomobile](https://github.com/duorua/narutomobile) — task list reference
+
+## 📄 License
+
+Licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)** — see [LICENSE](LICENSE) for the full text.
+
+In short: you are free to use, modify and redistribute this project, but **if you distribute a modified
+version, you must release it under AGPL-3.0 as well**, including the complete source code.
+
+> Note: the license governs the **code** only. It does not change the account-risk disclaimer above.
+
