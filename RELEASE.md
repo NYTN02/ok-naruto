@@ -192,10 +192,10 @@ python -m piptools compile --extra qt --strip-extras --no-header --output-file r
 
 ## 五、可选：CNB 国内镜像
 
-国内用户直连 GitHub 下载/更新较慢，模板提供了 CNB（cnb.cool，腾讯云的代码托管）
+国内用户直连 GitHub 下载/更新较慢，可以开一条 CNB（cnb.cool，腾讯云的代码托管）
 镜像通道。**不接也能正常发布**，只是国内下载慢一点。
 
-关于费用（社区版是「免费额度 + 超额按量」）：
+### 费用（社区版「免费额度 + 超额按量」）
 
 - 仓库存储 **100 GiB/月 免费**，本项目仓库只有几 MB，永远到不了超额。
 - 云原生构建 **160 核时/月 免费**。我们只把它当 git 镜像用，
@@ -203,12 +203,100 @@ python -m piptools compile --extra qt --strip-extras --no-header --output-file r
 - **不需要自己买服务器**，也不需要为「用户下载」付流量费。
 - 不绑定腾讯云付费方式时，额度用尽只会受限，**不会扣费**。
 
-启用步骤：注册 cnb.cool → 建公开仓库 `NYTN02/ok-naruto` → 生成访问令牌 →
-GitHub Secrets 加 `CNB_TOKEN` → 取消 `pyappify.yml` 里 China profile 的注释 →
-在 `build.yml` 的 `repos` 里加一行 CNB 地址。
-（注意：`repos` 是块文本，里面写 `#` 是数据不是注释。）
-
 参考：[CNB 计费说明](https://docs.cnb.cool/zh/pricing.md)
+
+### 开通步骤
+
+CNB 的仓库必须建在**组织**下，所以你会有两段式命名空间
+`https://cnb.cool/<组织名>/<仓库名>`。**注意：组织名不一定等于你的 GitHub 用户名。**
+
+#### 1. 创建组织
+
+1. 登录 https://cnb.cool
+2. 点右上角 **`＋`** → **`创建组织`**
+3. 填组织名称（例如 `okn`）和描述 → **`创建`**
+
+   记下这个组织名，后面 URL 里要用。
+
+#### 2. 创建仓库
+
+1. 再点右上角 **`＋`** → **`创建仓库`**
+2. **所属组织** 选刚建的组织
+3. **仓库名称** 填 `ok-naruto`
+4. 权限选 **公开**
+5. **`创建`**
+
+   建完确认能打开：`https://cnb.cool/<组织名>/ok-naruto`
+
+   这个空仓库就是镜像目标，**不用往里放任何东西**，CI 会推。
+
+#### 3. 生成访问令牌
+
+1. 打开 https://cnb.cool/profile/token （或：个人设置 → 访问令牌）
+2. 点 **`添加访问令牌`**
+3. **令牌名称** 填 `ok-naruto-ci`
+4. **到期时间** 选一个较长的期限（过期后构建会失败）
+5. **使用范围** 选能覆盖这个公开仓库的类型
+6. **授权范围** ⚠️ **必须包含「仓库读写 / 推送」**
+   —— 官方文档写明：公开仓库默认只有**只读**权限，不额外勾选就推不上去
+7. 创建后**立刻复制**那串令牌（页面关掉可能就看不到）
+
+   用法说明（官方文档）：访问代码仓库时**用户名固定为 `cnb`、密码是这个令牌**。
+   所以 `build.yml` 里写的是 `https://cnb:${{ secrets.CNB_TOKEN }}@cnb.cool/...`。
+
+#### 4. 加进 GitHub Secrets
+
+打开 https://github.com/NYTN02/ok-naruto/settings/secrets/actions/new
+
+1. **Name** 填 `CNB_TOKEN`（必须一字不差）
+2. **Secret** 粘贴刚复制的 CNB 令牌
+3. **`Add secret`**
+
+现在应该有 `OK_GH` 和 `CNB_TOKEN` 两个 secret。
+
+#### 5. 打开两个开关
+
+需要改两个文件，把里面的 `<组织名>` 换成你的真实组织名：
+
+**`pyappify.yml`** —— 取消注释 China profile：
+
+```yaml
+  - name: "China"
+    git_url: "https://cnb.cool/<组织名>/ok-naruto.git"
+    admin: true
+    main_script: "main.py"
+    requires_python: "3.12"
+    requirements: "requirements.txt"
+    pip_args: "--no-deps"
+    use_pythonw: true
+    show_add_defender: true
+```
+
+**`.github/workflows/build.yml`** —— 在 `Sync Repositories` 的 `repos` 里加一行
+（⚠️ `repos` 是块文本，里面写 `#` 是数据不是注释，所以要在它**下面**直接加一行真实内容）：
+
+```yaml
+          repos: |
+            https://NYTN02:${{ secrets.OK_GH }}@github.com/NYTN02/ok-naruto-update.git
+            https://cnb:${{ secrets.CNB_TOKEN }}@cnb.cool/<组织名>/ok-naruto.git
+```
+
+#### 6. 发一个新版本验证
+
+推一个 `v0.1.2` tag。构建时 `Sync Repositories` 会同时推到 GitHub 更新库和 CNB，
+并且 `pyappify_dist/` 里会多出一个 `ok-naruto-win32-China-setup.exe`
+（更新源指向 CNB，国内用户用它）。
+
+构建完确认 CNB 仓库里有内容：
+`https://cnb.cool/<组织名>/ok-naruto` 应该能看到 `src/`、`assets/`、`ok/`、`main.py` 等。
+
+### 组织名不确定时
+
+直接打开你建好的仓库页面，地址栏 `https://cnb.cool/XXX/ok-naruto` 里的 `XXX`
+就是组织名。
+
+参考：[CNB 访问令牌文档](https://docs.cnb.cool/zh/guide/access-token)、
+[创建第一个仓库](https://docs.cnb.cool/zh/guide/first-repo)
 
 ---
 

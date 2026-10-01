@@ -84,11 +84,17 @@ jobs:
         id: sync   # Give the step an ID to access its outputs
         uses: ok-oldking/partial-sync-repo@master
         with:
-          # 前置条件：先建好空仓库 https://github.com/NYTN02/ok-naruto-update ，
-          # 并在本仓库 Secrets 里加 OK_GH（一个有 repo 权限的 PAT）。
-          # 以后想同时推 CNB 国内镜像，就在 repos 里再加一行（注意不要写成注释，
-          # 块文本里的 # 是数据不是注释）：
-          #   https://cnb:${{ secrets.CNB_TOKEN }}@cnb.cool/NYTN02/ok-naruto.git
+          # 前置条件：
+          #   1) 空仓库 https://github.com/NYTN02/ok-naruto-update 已建好，
+          #      且本仓库 Secrets 里有 OK_GH（有 repo 权限的 PAT）
+          #   2) 启用 CNB 国内镜像时：CNB 上建好公开仓库、Secrets 里加 CNB_TOKEN、
+          #      pyappify.yml 里取消 China profile 的注释，然后在下面 repos 里
+          #      追加一行（把 <组织名> 换成你的 CNB 组织名）：
+          #          https://cnb:${{ secrets.CNB_TOKEN }}@cnb.cool/<组织名>/ok-naruto.git
+          #
+          # ⚠️ repos 是块文本（| 之后的缩进内容），里面的 # 是数据不是注释。
+          #    所以只能写真实地址；不要往里塞"注释行"，否则会被当成仓库地址
+          #    传给 action 导致同步失败。要加 CNB 就真加一行。
           repos: |
             https://NYTN02:${{ secrets.OK_GH }}@github.com/NYTN02/ok-naruto-update.git
           sync_list: 'deploy.txt'

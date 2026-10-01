@@ -30,18 +30,27 @@ profiles:
     show_add_defender: true
 
   # ---- 国内镜像包（可选）----
-  # CNB = cnb.cool（腾讯云的代码托管 + 云原生构建），社区版是「免费额度 + 超额按量」：
+  # 开启 CNB 国内镜像后启用下面的 China profile：国内用户装这个包，
+  # 更新源走 cnb.cool，比直连 GitHub 快很多。
+  #
+  # CNB 社区版是「免费额度 + 超额按量」：
   #   * 仓库存储 100 GiB/月 免费，本项目仓库只有几 MB，用不到超额
   #   * 云原生构建 160 核时/月 免费；我们只是把它当 git 镜像仓库用，
   #     推送由 GitHub Actions 完成，不在 CNB 上跑构建，所以基本不消耗
   #   * 不需要自己买服务器，用户下载也不产生你的流量费
   #   * 不绑定腾讯云付费方式时，额度用尽只会受限，不会扣费
-  # 启用步骤：注册 cnb.cool -> 建一个公开仓库 -> 生成访问令牌 ->
-  # 在 GitHub 仓库 Secrets 里加 CNB_TOKEN -> 取消下面的注释并改地址；
-  # 同时 build.yml 里 Sync Repositories 的 repos 也要加上 CNB 那一行。
-  # 注意：这条在 Global 之后，所以可以省略字段（会继承 Global 的值）。
+  #
+  # 开通步骤见 RELEASE.md 第五节。要点：
+  #   1) CNB 上先建「组织」，再在组织下建公开仓库 ok-naruto
+  #   2) cnb.cool/profile/token 生成访问令牌，
+  #      授权范围必须含「仓库读写」（公开仓库默认只有只读，推不上去）
+  #   3) GitHub Secrets 加 CNB_TOKEN
+  #   4) 启用下面这段（把 <组织名> 换掉）
+  #   5) build.yml 的 Sync Repositories 里也加一行 CNB 地址
+  #
+  # 注意：这条在 Global 之后，所以可以省略字段（会继承 profiles[0] 的值）。
   # - name: "China"
-  #   git_url: "https://cnb.cool/NYTN02/ok-naruto.git"
+  #   git_url: "https://cnb.cool/<组织名>/ok-naruto.git"
   #   admin: true
   #   main_script: "main.py"
   #   requires_python: "3.12"
