@@ -1,27 +1,44 @@
-name: "ok-script-app"
+name: "ok-naruto"
 uac: true
 icon: "icons/icon.png"
+
+# PyAppify 会把 profiles[].git_url 写进安装包，作为用户端的「自动更新源」。
+# 所以它必须是**更新库**（只放运行需要的文件，见 deploy.txt），不是主开发库。
+#
+# 每个 profile 会打出一个独立的安装包；profile 名会出现在文件名里，
+# 例如 ok-naruto-win32-Global-setup.exe。
 profiles:
-  - name: "China"
-    git_url: "https://cnb.cool/ok-oldking/ok-script-app.git"
-    admin: true
-    main_script: "main.py"
-    requires_python: "3.12"
-    requirements: "requirements.txt"
-    pip_args: "--no-deps"
-    use_pythonw: true
-    show_add_defender: true
-    # PYTHONPATH: "your/default/path" # Optional, will be "" if missing
-
+  # ---- 默认包：更新源走 GitHub 更新库 ----
   - name: "Global"
-    git_url: "https://github.com/ok-oldking/ok-script-app-update.git"
+    git_url: "https://github.com/NYTN02/ok-naruto-update.git"
     main_script: "main.py"
     requirements: "requirements.txt"
-    pip_args: "--no-deps"
 
-  - name: "Web"
-    main_script: "web_main.py"
-    requires_python: "3.12"
-    requirements: "requirements-web.txt"
-    pip_args: "--no-deps"
-    use_pythonw: true
+  # ---- Web UI 包（可选，本项目是 Qt 桌面应用，用不到就别启用）----
+  # 启用后需要 requirements-web.txt，并会多出一个 ok-naruto-win32-Web-setup.exe。
+  # - name: "Web"
+  #   main_script: "web_main.py"
+  #   requires_python: "3.12"
+  #   requirements: "requirements-web.txt"
+  #   pip_args: "--no-deps"
+  #   use_pythonw: true
+
+  # ---- 国内镜像包（可选）----
+  # CNB = cnb.cool（腾讯云的代码托管 + 云原生构建），社区版是「免费额度 + 超额按量」：
+  #   * 仓库存储 100 GiB/月 免费，本项目仓库只有几 MB，用不到超额
+  #   * 云原生构建 160 核时/月 免费；我们只是把它当 git 镜像仓库用，
+  #     推送由 GitHub Actions 完成，不在 CNB 上跑构建，所以基本不消耗
+  #   * 不需要自己买服务器，用户下载也不产生你的流量费
+  #   * 不绑定腾讯云付费方式时，额度用尽只会受限，不会扣费
+  # 启用步骤：注册 cnb.cool -> 建一个公开仓库 -> 生成访问令牌 ->
+  # 在 GitHub 仓库 Secrets 里加 CNB_TOKEN -> 取消下面的注释并改地址；
+  # 同时 build.yml 里 Sync Repositories 的 repos 也要加上 CNB 那一行。
+  # - name: "China"
+  #   git_url: "https://cnb.cool/NYTN02/ok-naruto.git"
+  #   admin: true
+  #   main_script: "main.py"
+  #   requires_python: "3.12"
+  #   requirements: "requirements.txt"
+  #   use_pythonw: true
+  #   pip_args: "--no-deps"
+  #   show_add_defender: true

@@ -26,6 +26,8 @@ update.bat
 click_screenshots/
 test_scripts/
 screenshots/
+debug_output/
+cache/
 thread_dumps.txt
 site/
 # C extensions

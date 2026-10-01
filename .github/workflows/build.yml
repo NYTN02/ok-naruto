@@ -6,6 +6,14 @@ on:
     tags:
       - 'v*'
 
+# 显式声明权限，这样就不依赖仓库设置里的
+# 「Settings -> Actions -> General -> Workflow permissions」默认值了。
+# contents: write 是创建 GitHub Release / 推送更新库所必需的
+# （默认常常是只读，会导致 Release 步骤 403）。
+permissions:
+  contents: write
+  actions: write
+
 jobs:
   build:
 
@@ -24,14 +32,17 @@ jobs:
           [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
           git config --global core.autocrlf false
           git config --global core.eol lf
-          git config --global user.email "ok-oldking@users.noreply.github.com"
-          git config --global user.name "ok-oldking"
+          git config --global user.email "NYTN02@users.noreply.github.com"
+          git config --global user.name "NYTN02"
           echo "action_state=yellow" >> $env:GITHUB_ENV
           echo "${{ env.action_state }}"
 
       - uses: actions/checkout@v4
         with:
           lfs: true
+          # partial-sync-repo 要对比「上次同步的 tag -> 当前 tag」来生成更新日志，
+          # 浅克隆（默认 fetch-depth: 1）拿不到历史 tag，日志会为空或出错。
+          fetch-depth: 0
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v2
@@ -53,18 +64,33 @@ jobs:
 
       - name: Run tests
         run: |
+          # 注意：PowerShell 步骤的最终退出码只看「最后一条原生命令」。
+          # 模板原来的写法只跑 python -m unittest 而不检查 $LASTEXITCODE，
+          # 于是前面的测试文件全挂了也可能判定为成功。这里每个文件都显式检查。
+          $failed = @()
           Get-ChildItem -Path ".\tests\*.py" | ForEach-Object {
               Write-Host "Running tests in $($_.FullName)"
               python -m unittest $_.FullName
+              if ($LASTEXITCODE -ne 0) {
+                  Write-Host "::error::Tests failed in $($_.FullName)"
+                  $failed += $_.Name
+              }
+          }
+          if ($failed.Count -gt 0) {
+              throw "Tests failed in: $($failed -join ', ')"
           }
 
       - name: Sync Repositories # 同步部分代码(deploy.txt中), 合并tag中间更新日志, 到更新库, 以减少用户更新使用的git库大小
         id: sync   # Give the step an ID to access its outputs
         uses: ok-oldking/partial-sync-repo@master
         with:
+          # 前置条件：先建好空仓库 https://github.com/NYTN02/ok-naruto-update ，
+          # 并在本仓库 Secrets 里加 OK_GH（一个有 repo 权限的 PAT）。
+          # 以后想同时推 CNB 国内镜像，就在 repos 里再加一行（注意不要写成注释，
+          # 块文本里的 # 是数据不是注释）：
+          #   https://cnb:${{ secrets.CNB_TOKEN }}@cnb.cool/NYTN02/ok-naruto.git
           repos: |
-            https://cnb:${{ secrets.CNB_TOKEN }}@cnb.cool/ok-oldking/ok-script-app.git
-            https://ok-oldking:${{ secrets.OK_GH }}@github.com/ok-oldking/ok-script-app-update.git
+            https://NYTN02:${{ secrets.OK_GH }}@github.com/NYTN02/ok-naruto-update.git
           sync_list: 'deploy.txt'
           tag: ${{ github.ref_name }}
           gitignore_file: '.update_repo_gitignore'
@@ -79,23 +105,14 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           draft: false
+          # 带 '-' 的 tag（如 v0.1.1-beta.1）标为预发布，不要当成正式版
+          prerelease: ${{ contains(github.ref_name, '-') }}
           body: |
             ###  更新日志 ${{ steps.sync.outputs.start_tag }} -> ${{ steps.sync.outputs.end_tag }}:
               ${{ steps.sync.outputs.changes_with_asterisk }}          
             ### 下载包说明
-              * [ok-script-app-win32-China-setup.exe](https://github.com/ok-oldking/ok-script-app/releases/download/${{ github.ref_name }}/ok-script-app-win32-China-setup.exe) 完整安装包, 更新使用阿里云+腾讯CNB.
-              * [ok-script-app-win32-Global-setup.exe](https://github.com/ok-oldking/ok-script-app/releases/download/${{ github.ref_name }}/ok-script-app-win32-Global-setup.exe) full package with dependencies, using GitHub and PyPi as update source
-              * [ok-script-app-win32-Web-setup.exe](https://github.com/ok-oldking/ok-script-app/releases/download/${{ github.ref_name }}/ok-script-app-win32-Web-setup.exe) web UI package with dependencies
-            ### 如果无法下载或下载慢, 可以使用其他下载源
-              * [Mirror酱下载渠道](https://mirrorchyan.com/zh/projects?rid=ok-script-app&source=ok-script-app-release), 国内网页直链, 下载需要购买CD-KEY, 已有Mirror酱CD-KEY可免费下载
-              * [夸克网盘](https://pan.quark.cn/s/a1052cec4d13), 免费, 但需要注册并下载夸克网盘客户端
+              * [ok-naruto-win32-Global-setup.exe](https://github.com/NYTN02/ok-naruto/releases/download/${{ github.ref_name }}/ok-naruto-win32-Global-setup.exe) 完整安装包，更新源走 GitHub
+            ### 使用前提
+              * 需要 MuMu 模拟器 12，分辨率设为 1600x900（或其它 16:9）
+              * 模拟器需开启 ADB 调试；脚本通过 ADB/IPC 与模拟器通信
           files: pyappify_dist/*
-
-      - name: Trigger MirrorChyanUploading
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: bash
-        run: |
-          gh workflow run --repo $GITHUB_REPOSITORY mirrorchyan_uploading.yml -f tag=${{ github.ref_name }}
-          gh workflow run --repo $GITHUB_REPOSITORY mirrorchyan_release_note.yml -f tag=${{ github.ref_name }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

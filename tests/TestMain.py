@@ -234,17 +234,13 @@ class TestMyOneTimeTask(TaskTestCase):
         text = self.task.find_some_text_with_relative_box()
         self.assertEqual(text[0].name, '招募')
 
-    def test_feature1(self):
-        # Create a BattleReport object
-        self.set_image('tests/images/main.png')
-        feature = self.task.test_find_one_feature()
-        self.assertIsNotNone(feature)
-
-    def test_feature2(self):
-        # Create a BattleReport object
-        self.set_image('tests/images/main.png')
-        features = self.task.test_find_feature_list()
-        self.assertEqual(1, len(features))
+    # 模板自带的 test_feature1 / test_feature2 已删除：
+    # 它们断言 find_one('this_is_a_place_holder') 能命中，而那个占位模板只存在于
+    # ok-script-app 模板的 assets 里。本项目用的是火影忍者的真实标注，
+    # 没有这个分类，所以这两个用例必然报
+    # ValueError: FeatureSet: this_is_a_place_holder not found in featureDict。
+    # 而 CI 会跑 tests/ 作为发布门禁，留着它们会直接卡死打包。
+    # 本项目自己的回归用例见 tests/TestRelease.py。
 
 
 if __name__ == '__main__':
