@@ -1,0 +1,4 @@
+interface:
+  display_name: "Initialize OK Script App"
+  short_description: "Initialize an ok-script game automation repository"
+  default_prompt: "Use $initialize-ok-script-app to initialize this repository for my game."

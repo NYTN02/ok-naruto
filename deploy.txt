@@ -1,0 +1,13 @@
+src
+ok
+main.py
+main_debug.py
+web_main.py
+web_main_debug.py
+icons
+requirements.txt
+requirements-web.txt
+README.md
+i18n
+assets
+pyappify.yml

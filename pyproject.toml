@@ -1,0 +1,24 @@
+[project]
+name = "ok-script-app"
+version = "0.0.0"
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[project.optional-dependencies]
+# PySide6-Fluent-Widgets declares the full PySide6 metapackage, but the Qt app
+# uses only modules from Essentials. The compiled Qt lock is installed with
+# --no-deps, so remove generated pyside6 and pyside6-addons entries after
+# recompiling while retaining pyside6-essentials.
+qt = [
+    "ok-script[adb,default,ocr,qt]==2.0.0b7",
+    "openvino",
+    "opencv-python",
+]
+web = [
+    "ok-script[adb,default,ocr,web]==2.0.0b7",
+    "openvino",
+    "opencv-python",
+]
+docs = [
+    "mkdocs==1.6.1",
+]

@@ -1,0 +1,48 @@
+site_name: ok-script-app
+site_description: Build Windows, Android emulator, and browser automation apps with ok-script.
+repo_name: ok-oldking/ok-script-app
+repo_url: https://github.com/ok-oldking/ok-script-app
+edit_uri: edit/master/docs/
+
+docs_dir: docs
+site_dir: site
+use_directory_urls: true
+
+theme:
+  name: readthedocs
+  locale: zh_CN
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+
+validation:
+  nav:
+    omitted_files: warn
+    not_found: warn
+  links:
+    not_found: warn
+    anchors: warn
+    unrecognized_links: warn
+
+nav:
+  - 中文:
+      - 首页: index.md
+      - 快速开始: getting-started.md
+      - 应用配置: configuration.md
+      - 任务开发: tasks.md
+      - 打包与发布: release.md
+      - 文档网站: documentation.md
+  - English:
+      - Home: en/index.md
+      - Quick Start: en/getting-started.md
+      - App Configuration: en/configuration.md
+      - Task Development: en/tasks.md
+      - Packaging and Release: en/release.md
+      - Documentation Site: en/documentation.md

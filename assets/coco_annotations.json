@@ -1,0 +1,32 @@
+{
+    "images": [
+        {
+            "id": 1,
+            "file_name": "images/0.png",
+            "width": 3840,
+            "height": 2160
+        }
+    ],
+    "annotations": [
+        {
+            "id": 1,
+            "image_id": 1,
+            "category_id": 1,
+            "bbox": [
+                127,
+                66,
+                58,
+                45
+            ],
+            "area": 2610,
+            "iscrowd": 0
+        }
+    ],
+    "categories": [
+        {
+            "id": 1,
+            "name": "this_is_a_place_holder",
+            "supercategory": ""
+        }
+    ]
+}

@@ -1,0 +1,268 @@
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: 1.0\n"
+"Report-Msgid-Bugs-To: you@example.com\n"
+"Last-Translator: you@example.com\n"
+"Language-Team: English\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "一键日常"
+msgstr "One-click Dailies"
+
+msgid "从要推的图的最左边开始"
+msgstr "Start from the leftmost stage to clear"
+
+msgid "体力本"
+msgstr "Stamina Stage"
+
+msgid "公共区"
+msgstr "Public Area"
+
+msgid "兵棋推演"
+msgstr "War Chess Simulation"
+
+msgid "军备解析"
+msgstr "Armament Analysis"
+
+msgid "冲锋"
+msgstr "SMG & MG"
+
+msgid "决策构象"
+msgstr "Decision Configuration"
+
+msgid "刷钱本"
+msgstr "Gold Farming Stage"
+
+msgid "大月卡"
+msgstr "Premium Monthly Card"
+
+msgid "尘烟"
+msgstr "Dust Smoke"
+
+msgid "手枪"
+msgstr "HG"
+
+msgid "推图"
+msgstr "Clear Stages"
+
+msgid "收菜"
+msgstr "Collect Resources"
+
+msgid "活动情报补给"
+msgstr "Event Intel Supply"
+
+msgid "活动自律"
+msgstr "Event Auto-Battle"
+
+msgid "深度搜索"
+msgstr "Deep Search"
+
+msgid "狙击"
+msgstr "RF & BLD"
+
+msgid "班组"
+msgstr "Squad"
+
+msgid "突击"
+msgstr "AR & SG"
+
+msgid "竞技场"
+msgstr "Arena"
+
+msgid "自动刷体力"
+msgstr "Auto-Farm Stamina"
+
+msgid "购买免费礼包"
+msgstr "Claim Free Pack"
+
+msgid "邮件"
+msgstr "Mail"
+
+msgid "领任务"
+msgstr "Claim Missions"
+
+msgid "Configuration Demo Task"
+msgstr "Configuration Demo Task"
+
+msgid "Demonstrates every configuration widget for English to Chinese translation."
+msgstr "Demonstrates every configuration widget for English to Chinese translation."
+
+msgid "Drop Down Config"
+msgstr "Drop Down Config"
+
+msgid "Boolean Config"
+msgstr "Boolean Config"
+
+msgid "Integer Config"
+msgstr "Integer Config"
+
+msgid "Float Config"
+msgstr "Float Config"
+
+msgid "String Config"
+msgstr "String Config"
+
+msgid "Text Edit Config"
+msgstr "Text Edit Config"
+
+msgid "Folder Selector Config"
+msgstr "Folder Selector Config"
+
+msgid "File Selector Config"
+msgstr "File Selector Config"
+
+msgid "List Config"
+msgstr "List Config"
+
+msgid "Drop Down Options Config"
+msgstr "Drop Down Options Config"
+
+msgid "Multi Selection Config"
+msgstr "Multi Selection Config"
+
+msgid "Sub Boolean Config"
+msgstr "Sub Boolean Config"
+
+msgid "Sub String Config"
+msgstr "Sub String Config"
+
+msgid "Sub Float Config"
+msgstr "Sub Float Config"
+
+msgid "Game Hotkey Config"
+msgstr "Game Hotkey Config"
+
+msgid "Button Config"
+msgstr "Button Config"
+
+msgid "Button Options Config"
+msgstr "Button Options Config"
+
+msgid "Drop-down configuration with translated option values."
+msgstr "Drop-down configuration with translated option values."
+
+msgid "Single-line string configuration with a translated value."
+msgstr "Single-line string configuration with a translated value."
+
+msgid "Multi-line string configuration with a translated value."
+msgstr "Multi-line string configuration with a translated value."
+
+msgid "Folder selector configuration that stores the selected folder path."
+msgstr "Folder selector configuration that stores the selected folder path."
+
+msgid "File selector configuration with an optional file filter."
+msgstr "File selector configuration with an optional file filter."
+
+msgid "Dropdown option list restricted to available translated values."
+msgstr "Dropdown option list restricted to available translated values."
+
+msgid "Open the shared global configuration example."
+msgstr "Open the shared global configuration example."
+
+msgid "Button configuration that displays all current values."
+msgstr "Button configuration that displays all current values."
+
+msgid "Button configuration with multiple action buttons."
+msgstr "Button configuration with multiple action buttons."
+
+msgid "Drop Down Value 1"
+msgstr "Drop Down Value 1"
+
+msgid "Drop Down Value 2"
+msgstr "Drop Down Value 2"
+
+msgid "Select Demo Folder"
+msgstr "Select Demo Folder"
+
+msgid "Select Demo File"
+msgstr "Select Demo File"
+
+msgid "Multi Selection Value 1"
+msgstr "Multi Selection Value 1"
+
+msgid "Multi Selection Value 2"
+msgstr "Multi Selection Value 2"
+
+msgid "Multi Selection Value 3"
+msgstr "Multi Selection Value 3"
+
+msgid "Button Value"
+msgstr "Button Value"
+
+msgid "Show Config Values"
+msgstr "Show Config Values"
+
+msgid "Show Notification"
+msgstr "Show Notification"
+
+msgid "Button notification displayed."
+msgstr "Button notification displayed."
+
+msgid "Configuration values displayed."
+msgstr "Configuration values displayed."
+
+msgid "String Value"
+msgstr "String Value"
+
+msgid "Text Edit Value"
+msgstr "Text Edit Value"
+
+msgid "List Value 1"
+msgstr "List Value 1"
+
+msgid "List Value 2"
+msgstr "List Value 2"
+
+msgid "Sub String Value"
+msgstr "Sub String Value"
+
+msgid "Available Drop Down Value 1"
+msgstr "Available Drop Down Value 1"
+
+msgid "Available Drop Down Value 2"
+msgstr "Available Drop Down Value 2"
+
+msgid "Available Drop Down Value 3"
+msgstr "Available Drop Down Value 3"
+
+msgid "True"
+msgstr "True"
+
+msgid "False"
+msgstr "False"
+
+msgid "Select one of the available drop-down values."
+msgstr "Select one of the available drop-down values."
+
+msgid "Select only available multi-selection values."
+msgstr "Select only available multi-selection values."
+
+msgid "Select only available drop-down option values."
+msgstr "Select only available drop-down option values."
+
+msgid "Python Files (*.py);;All Files (*)"
+msgstr "Python Files (*.py);;All Files (*)"
+
+msgid "触发器会不断调用run方法"
+msgstr "The trigger repeatedly calls the run method"
+
+msgid "一般根据frame来判断是否需要运行"
+msgstr "Typically determines whether to run based on the frame"
+
+msgid "Echo Key"
+msgstr "Echo Key"
+
+msgid "Liberation Key"
+msgstr "Liberation Key"
+
+msgid "Resonance Key"
+msgstr "Resonance Key"
+
+msgid "Tool Key"
+msgstr "Tool Key"
+
+msgid "In Game Hotkey for Skills"
+msgstr "In-Game Hotkeys for Skills"
