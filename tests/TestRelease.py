@@ -44,6 +44,10 @@ REQUIRED_FEATURES = [
     'coin_freetoget',
     'coin_cancel',
     'popu_cancel',
+    # 每日签到（src/tasks/qiandao_task.py）
+    'main_activity',           # 主界面右上角活动入口
+    'activity_qiandao',        # 每月签到面板里的签到按钮
+    'activity_qiandaocancel',  # 签到面板的关闭按钮
 ]
 
 
@@ -143,9 +147,9 @@ class TestDailyTask(unittest.TestCase):
     def test_run_order_is_expected(self):
         """固定执行顺序，改顺序时这条会提醒你同步改文档和说明。"""
         expected = [
-            '领取铜币', '任务集会所', '积分赛', '好友体力赠送与收取', '排行榜点赞',
-            '组织祈福', '小队突袭', '领取一乐拉面', '精英副本', '招募',
-            '丰饶之间', '每日分享', '每日活跃奖励',
+            '每日签到', '领取铜币', '任务集会所', '积分赛', '好友体力赠送与收取',
+            '排行榜点赞', '组织祈福', '小队突袭', '领取一乐拉面', '精英副本',
+            '招募', '丰饶之间', '每日分享', '每日活跃奖励',
         ]
         self.assertEqual(expected, [label for _, label in DAILY_TASKS])
 

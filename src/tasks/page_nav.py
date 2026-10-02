@@ -17,14 +17,15 @@ MAIN_PAGE_FEATURE = 'main_adventure'
 # 关闭 / 取消类按钮，按优先级排列。同屏出现多个时先试前面的。
 # 这些都是 assets/coco_annotations.json 里已标注的特征名。
 CANCEL_FEATURES = [
-    'popu_cancel',      # 通用弹窗右上角 X
-    'reward_cancel',    # 奖励界面关闭
-    'gacha_cancel',     # 抽卡/招募关闭
-    'clean_cancel',     # 扫荡关闭
-    'activity_cancel',  # 活动界面关闭
-    'team_cancel',      # 组织界面关闭
-    'friend_cancel',    # 好友界面关闭
-    'coin_cancel',      # 铜币界面关闭
+    'popu_cancel',             # 通用弹窗右上角 X
+    'reward_cancel',           # 奖励界面关闭
+    'gacha_cancel',            # 抽卡/招募关闭
+    'clean_cancel',            # 扫荡关闭
+    'activity_cancel',         # 活动界面关闭
+    'activity_qiandaocancel',  # 每月签到面板关闭
+    'team_cancel',             # 组织界面关闭
+    'friend_cancel',           # 好友界面关闭
+    'coin_cancel',             # 铜币界面关闭
 ]
 
 

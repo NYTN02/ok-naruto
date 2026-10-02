@@ -161,6 +161,7 @@ config = {
     'my_app': ['src.globals', 'Globals'], #可选. 全局单例对象, 可以存放加载的模型, 使用og.my_app调用
     'onetime_tasks': [  # 用户点击触发的任务
         ["src.tasks.daily_task", "DailyTask"],              # 一键日常（推荐入口）
+        ["src.tasks.qiandao_task", "QianDaoTask"],          # 每日签到
         ["src.tasks.coin_task", "CoinTask"],                # 领取铜币
         ["src.tasks.mission_task", "MissionTask"],          # 任务集会所
         ["src.tasks.pointrace_task", "PointRaceTask"],      # 积分赛

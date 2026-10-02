@@ -2,6 +2,15 @@ from ok import BaseTask
 import re
 import time
 
+# 「邀请」列表上滑时的 x 坐标（相对屏幕宽度）。
+# 取很小的值贴着屏幕左边缘滑：这里不会压到邀请卡片本身，
+# 拖动更稳（换成 0.20 之类的中间位置容易误触卡片或拖不动列表）。
+INVITE_SWIPE_X = 0.025
+INVITE_SWIPE_FROM_Y = 0.75
+INVITE_SWIPE_TO_Y = 0.25
+INVITE_SWIPE_DURATION = 0.4
+INVITE_MAX_SWIPES = 5
+
 
 class TeamFightTask(BaseTask):
     def __init__(self, *args, **kwargs):
@@ -127,14 +136,17 @@ class TeamFightTask(BaseTask):
         if self.click_top_invite_ocr():
             return True
 
-        for i in range(5):
-            self.log_info(f"[邀请查找] 第 {i+1} 次滑动查找")
-            self.swipe_relative(0.20, 0.75, 0.20, 0.25, duration=0.4)
+        for i in range(INVITE_MAX_SWIPES):
+            self.log_info(f"[邀请查找] 第 {i+1} 次滑动查找 "
+                          f"(x={INVITE_SWIPE_X} {INVITE_SWIPE_FROM_Y}->{INVITE_SWIPE_TO_Y})")
+            self.swipe_relative(INVITE_SWIPE_X, INVITE_SWIPE_FROM_Y,
+                                INVITE_SWIPE_X, INVITE_SWIPE_TO_Y,
+                                duration=INVITE_SWIPE_DURATION)
             self.sleep(1.0)
             if self.click_top_invite_ocr():
                 return True
 
-        self.log_warning("滑动 5 次后仍未找到'邀请'")
+        self.log_warning(f"滑动 {INVITE_MAX_SWIPES} 次后仍未找到'邀请'")
         return False
 
     def click_top_invite_ocr(self):

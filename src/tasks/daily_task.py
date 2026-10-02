@@ -26,6 +26,7 @@ from src.tasks.mission_task import MissionTask
 from src.tasks.noodle_task import NoodleTask
 from src.tasks.page_nav import PageNavTask
 from src.tasks.pointrace_task import PointRaceTask
+from src.tasks.qiandao_task import QianDaoTask
 from src.tasks.ranklist_task import RankListTask
 from src.tasks.reward_task import RewardTask
 from src.tasks.share_task import ShareTask
@@ -34,6 +35,7 @@ from src.tasks.teamfight_task import TeamFightTask
 
 # (任务类, 展示名)。展示名用于日志和「执行任务」多选配置，顺序即执行顺序。
 DAILY_TASKS = [
+    (QianDaoTask, "每日签到"),
     (CoinTask, "领取铜币"),
     (MissionTask, "任务集会所"),
     (PointRaceTask, "积分赛"),

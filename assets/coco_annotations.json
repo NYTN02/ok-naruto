@@ -161,6 +161,12 @@
             "file_name": "images/4.png",
             "width": 1600,
             "height": 900
+        },
+        {
+            "id": 31,
+            "file_name": "images/7.png",
+            "width": 1600,
+            "height": 900
         }
     ],
     "annotations": [
@@ -1099,6 +1105,32 @@
             ],
             "area": 2968,
             "iscrowd": 0
+        },
+        {
+            "id": 73,
+            "image_id": 31,
+            "category_id": 73,
+            "bbox": [
+                1414,
+                693,
+                141,
+                58
+            ],
+            "area": 8178,
+            "iscrowd": 0
+        },
+        {
+            "id": 74,
+            "image_id": 31,
+            "category_id": 74,
+            "bbox": [
+                1466,
+                17,
+                116,
+                57
+            ],
+            "area": 6612,
+            "iscrowd": 0
         }
     ],
     "categories": [
@@ -1460,6 +1492,16 @@
         {
             "id": 72,
             "name": "share_qq",
+            "supercategory": ""
+        },
+        {
+            "id": 73,
+            "name": "activity_qiandao",
+            "supercategory": ""
+        },
+        {
+            "id": 74,
+            "name": "activity_qiandaocancel",
             "supercategory": ""
         }
     ]

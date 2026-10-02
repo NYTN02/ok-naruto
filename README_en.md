@@ -74,7 +74,7 @@ a summary of successes and failures is printed at the end.
 
 ```
 Return to main screen
- → Coins → Mission Hall → Point Race → Friend stamina send/receive
+ → Daily check-in → Coins → Mission Hall → Point Race → Friend stamina send/receive
  → Rank list likes → Team prayer → Team raid → Ichiraku ramen
  → Elite dungeon → Recruit → Battle of Fertility → Daily share
  → Daily activity reward
@@ -88,6 +88,7 @@ Every item above can also be run on its own:
 
 | Task | Description |
 |---|---|
+| 每日签到 | Daily check-in: scroll the activity page to find "每月签到" |
 | 领取铜币 | Claim free coins |
 | 任务集会所 | Claim mission hall rewards |
 | 积分赛 | Point race |
@@ -109,7 +110,8 @@ Every item above can also be run on its own:
   buttons and clicks them. No keyboard mapping needed.
 * **Auto popup closing** — a built-in "return to main screen" routine tries
   `popu_cancel` / `reward_cancel` / `gacha_cancel` / `clean_cancel` / `activity_cancel` /
-  `team_cancel` / `friend_cancel` / `coin_cancel` to dismiss panels one layer at a time.
+  `activity_qiandaocancel` / `team_cancel` / `friend_cancel` / `coin_cancel`
+  to dismiss panels one layer at a time.
 
 ## 🔧 Troubleshooting
 
