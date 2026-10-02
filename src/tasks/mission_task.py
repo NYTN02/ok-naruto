@@ -5,9 +5,9 @@ from src.tasks.guide_nav import GuideNavTask
 GUIDE_ITEM = 'guide_mission'
 GUIDE_GO = 'guide_missiongo'
 
-# 点了「接取」但没走到「出发」时，判定这一次接取失败；
-# 整轮下来一次都没接上，就点 popu_cancel 退回主页面重跑，
-# 最多重试这么多次，再不行就跳过。
+# 没能接取到任务时，回主页面重新进入任务集会所再试的次数。
+# 「没能接取」包含三种：没进得去界面 / 一次都没点到「接取」 / 点到了但没走到「出发」。
+# 用户明确要求「没点到接取」也要重进重试，所以 empty 不再是终止条件。
 MAX_ACCEPT_RETRY = 2
 
 # 一轮里最多尝试接取几个任务
@@ -31,31 +31,34 @@ class MissionTask(GuideNavTask):
 
         for attempt in range(MAX_ACCEPT_RETRY + 1):
             if attempt:
-                self.log_warning(f"===== 重试第 {attempt} 次任务集会所 =====")
+                self.log_warning(f"===== 重新进入任务集会所（第 {attempt} 次重试）=====")
 
             status, accepted = self.run_once()
 
-            if status == 'no_entry':
-                self.log_error("未找到任务集会所入口，任务终止")
-                return
-
-            if status != 'failed':
-                # 'ok'（成功接取过）或 'empty'（本来就没有可接取的任务）
-                if status == 'empty':
-                    self.log_info("没有可接取的任务（可能今天已经接满了）")
-                else:
-                    self.log_info(f"本次成功接取 {accepted} 个任务")
+            if status == 'ok':
+                self.log_info(f"本次成功接取 {accepted} 个任务")
                 self.log_info("任务集会所任务结束")
                 return
 
-            # 一个都没接上：点 popu_cancel 退回主页面后重跑
+            # 没能接取到任务 —— 三种情况都算：
+            #   no_entry  没进得去任务集会所界面（指南入口那步失败）
+            #   empty     进去了但一次都没点到「接取」
+            #   failed    点到了「接取」但没走到「出发」
+            reason = {
+                'no_entry': "没能进入任务集会所界面",
+                'empty': "进入了界面但一次都没点到「接取」",
+                'failed': "点到了「接取」但没走到「出发」",
+            }.get(status, status)
+            self.log_warning(f"没有成功接取任务：{reason}")
+
             if attempt < MAX_ACCEPT_RETRY:
-                self.log_warning("没有成功接取任务，点 popu_cancel 退回主页面后重试"
+                # 回主页面，下一轮 run_once() 会重新走指南进来
+                self.log_warning(f"回主页面后重新进入任务集会所再试"
                                  f"（{attempt + 1}/{MAX_ACCEPT_RETRY}）")
                 self.back_to_main(max_rounds=15, interval=0.8)
                 self.sleep(1.0)
             else:
-                self.log_warning(f"重试 {MAX_ACCEPT_RETRY} 次仍未成功接取任务，本次跳过")
+                self.log_warning(f"重试 {MAX_ACCEPT_RETRY} 次仍未接取到任务，本次跳过")
                 self.back_to_main(max_rounds=15, interval=0.8, log=False)
 
     def run_once(self):

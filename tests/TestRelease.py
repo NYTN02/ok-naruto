@@ -41,7 +41,7 @@ from src.tasks.page_nav import (
     MAIN_PAGE_FEATURE,
     PageNavTask,
 )
-from src.tasks.pointrace_task import CHALLENGE_RETRY, PointRaceTask
+from src.tasks.pointrace_task import CHALLENGE_RETRY, ENTRY_RETRY, PointRaceTask
 from src.tasks.qiandao_task import QianDaoTask
 from src.tasks.team_praytask import COINPRAY_ATTEMPTS, COINPRAY_INTERVAL
 from src.tasks.teamfight_task import TeamFightTask
@@ -419,6 +419,37 @@ class TestDailyTaskHardening(unittest.TestCase):
         self.assertEqual(2, MAX_ACCEPT_RETRY, '任务集会所接取失败应重试 2 次')
         for name in ('run_once', 'accept_one_mission'):
             self.assertTrue(callable(getattr(MissionTask, name, None)), f'缺少 {name}')
+
+    def test_mission_retries_when_nothing_was_accepted(self):
+        """「一次都没点到接取」(empty) 也必须重试 —— 用户明确要求过。
+
+        一开始我把 empty（今天已接满之类的正常情况）当成终止条件，不重试；
+        但用户要求「没点到接取就回主页面重进再试」，所以三种失败都要能重试：
+            no_entry / empty / failed
+        """
+        with open('src/tasks/mission_task.py', encoding='utf-8') as f:
+            src = f.read()
+        run_body = src.split('def run_once')[0]        # 只看 run()
+        # 只有 ok 才直接收工
+        self.assertIn("if status == 'ok':", run_body)
+        # 三种失败都要出现在重试原因表里
+        for key in ('no_entry', 'empty', 'failed'):
+            self.assertIn(f"'{key}'", run_body,
+                          f'run() 里没有处理 {key}，它不会走重试分支')
+        # 不能有一遇到就 return 的分支
+        self.assertNotIn("if status == 'no_entry':", run_body,
+                         'no_entry 不应直接 return，应回主页面重试')
+
+    def test_pointrace_entry_retry(self):
+        """积分赛：没检测到并点到「挑战」时，回主页面重进，只重试一次。"""
+        self.assertEqual(1, ENTRY_RETRY, '积分赛进入失败应只重试 1 次')
+        with open('src/tasks/pointrace_task.py', encoding='utf-8') as f:
+            src = f.read()
+        self.assertIn('ENTRY_RETRY', src)
+        self.assertIn('ensure_opponent_screen()', src)
+        # 重试循环必须存在并受 ENTRY_RETRY 控制
+        self.assertIn('range(ENTRY_RETRY + 1)', src,
+                      '没有用 ENTRY_RETRY 控制进入重试')
 
     def test_pointrace_challenge_retry(self):
         self.assertEqual(1, CHALLENGE_RETRY, '积分赛挑战失败应额外重试 1 次')

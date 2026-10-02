@@ -9,6 +9,10 @@ GUIDE_GO = 'guide_pointracego'
 # 挑战没成功时额外重试的次数（1 表示最多打两次）
 CHALLENGE_RETRY = 1
 
+# 「进入积分赛并展开对手列表」失败（没检测到并点到 pointrace_challenge）时，
+# 回主页面重新进入的额外重试次数。用户要求只重试一次。
+ENTRY_RETRY = 1
+
 # 本队战力：先在画面里找 pointrace_personalpower 图标，再 OCR 它右侧的数字。
 # 原来靠全屏 OCR 找「本队战力」这几个字，那个词受字体和背景影响、识别不稳；
 # 图标是固定图，模板匹配很稳，数值又固定在图标右侧同一行。
@@ -29,16 +33,38 @@ class PointRaceTask(GuideNavTask):
     def run(self):
         self.log_info("开始积分赛...")
 
-        # ========== 1. 走「指南」进入积分赛 ==========
-        if not self.enter_guide(GUIDE_ITEM, GUIDE_GO):
-            self.log_error("没能通过指南进入积分赛，任务终止")
-            return
-        self.sleep(1.2)
+        # ========== 1. 进入积分赛并展开对手列表（失败重试一次）==========
+        # 用户要求：如果没检测到并点到「挑战」(pointrace_challenge)，
+        # 就回主页面重新进来再试，只重试一次。
+        entered = False
+        for attempt in range(ENTRY_RETRY + 1):
+            if attempt:
+                self.log_warning(f"===== 重新进入积分赛（第 {attempt} 次重试）=====")
 
-        # 点击屏幕中央五次
-        for i in range(5):
-            self.click_relative(0.5, 0.5)
-            self.sleep(0.8)
+            if not self.enter_guide(GUIDE_ITEM, GUIDE_GO):
+                self.log_warning("没能通过指南进入积分赛")
+            else:
+                self.sleep(1.2)
+                # 点击屏幕中央五次，点掉进入后可能出现的提示
+                for i in range(5):
+                    self.click_relative(0.5, 0.5)
+                    self.sleep(0.8)
+
+                # 这一步内部会检测并点击 pointrace_challenge
+                if self.ensure_opponent_screen():
+                    entered = True
+                    break
+                self.log_warning("没有检测到并点到「挑战」，准备重试")
+
+            if attempt < ENTRY_RETRY:
+                self.log_warning(f"回主页面重新进入积分赛（{attempt + 1}/{ENTRY_RETRY}）")
+                self.back_to_main(max_rounds=12, interval=0.8, log=False)
+                self.sleep(1.0)
+
+        if not entered:
+            self.log_error(f"重试 {ENTRY_RETRY} 次仍没能进入积分赛挑战界面，任务终止")
+            self.back_to_main(max_rounds=12, interval=0.8, log=False)
+            return
 
         # ========== 2. 循环挑战 ==========
         max_loops = 20
