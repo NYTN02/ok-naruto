@@ -4,6 +4,7 @@ import re
 # 进入方式：走「指南」列表（原来是在主页面找 main_pointrace，
 # 每个玩家主页背景不同，经常匹配不到）
 GUIDE_ITEM = 'guide_pointrace'
+GUIDE_TEXT = '积分赛'   # 指南列表里条目的文字（OCR 识别）
 GUIDE_GO = 'guide_pointracego'
 
 # 挑战没成功时额外重试的次数（1 表示最多打两次）
@@ -41,7 +42,7 @@ class PointRaceTask(GuideNavTask):
             if attempt:
                 self.log_warning(f"===== 重新进入积分赛（第 {attempt} 次重试）=====")
 
-            if not self.enter_guide(GUIDE_ITEM, GUIDE_GO):
+            if not self.enter_guide(GUIDE_TEXT, GUIDE_GO, item_feature=GUIDE_ITEM):
                 self.log_warning("没能通过指南进入积分赛")
             else:
                 self.sleep(1.2)

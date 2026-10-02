@@ -4,6 +4,7 @@ import time
 
 # 进入方式：走「指南」列表
 GUIDE_ITEM = 'guide_teamfight'
+GUIDE_TEXT = '小队突袭'   # 指南列表里条目的文字（OCR 识别）
 GUIDE_GO = 'guide_teamfightgo'
 
 # 「邀请」列表上滑时的 x 坐标（相对屏幕宽度）。
@@ -31,7 +32,7 @@ class TeamFightTask(GuideNavTask):
 
             # 1. 每轮都走「指南」进入小队突袭
             #    （原来是主页面找 main_teamfight，每个玩家主页背景不同，常匹配不到）
-            if not self.enter_guide(GUIDE_ITEM, GUIDE_GO):
+            if not self.enter_guide(GUIDE_TEXT, GUIDE_GO, item_feature=GUIDE_ITEM):
                 self.log_error("没能通过指南进入小队突袭，任务终止")
                 return
             self.sleep(1.5)

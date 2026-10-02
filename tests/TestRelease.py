@@ -36,8 +36,14 @@ from src.tasks.coinorgin_task import CoinOrginTask
 from src.tasks.guide_nav import (
     GUIDE_LISTBOTTOM,
     GUIDE_LISTTOP,
-    GUIDE_SCROLL_DISTANCE,
-    GUIDE_SCROLL_Y,
+    GUIDE_SCROLL_AFTER,
+    GUIDE_SCROLL_DOWN_FROM_Y,
+    GUIDE_SCROLL_DOWN_TO_Y,
+    GUIDE_SCROLL_MAX,
+    GUIDE_SCROLL_UP_FROM_Y,
+    GUIDE_SCROLL_UP_TO_Y,
+    GUIDE_SCROLL_X,
+    GUIDE_STUCK_TOLERANCE,
     GuideNavTask,
 )
 from src.tasks.mission_task import MAX_ACCEPT_RETRY, MissionTask
@@ -526,19 +532,24 @@ class TestGuideEntry(unittest.TestCase):
     }
 
     def test_guide_constants(self):
-        from src.tasks.guide_nav import (
-            GUIDE_CANCEL,
-            GUIDE_ENTRY,
-            GUIDE_SCROLL_DISTANCE,
-            GUIDE_SCROLL_X,
-            GUIDE_SCROLL_Y,
-        )
+        """滑动手势是需求里明确规定的两条固定起止线。"""
+        from src.tasks.guide_nav import GUIDE_CANCEL, GUIDE_ENTRY
         self.assertEqual('main_guide', GUIDE_ENTRY)
         self.assertEqual('guide_cancel', GUIDE_CANCEL)
-        # 滑动锚点是需求里指定的位置
-        self.assertAlmostEqual(0.090, GUIDE_SCROLL_X, places=3)
-        self.assertAlmostEqual(0.520, GUIDE_SCROLL_Y, places=3)
-        self.assertGreater(GUIDE_SCROLL_DISTANCE, 0)
+        self.assertAlmostEqual(0.100, GUIDE_SCROLL_X, places=3)
+        # 往下找：按住 0.777 滑到 0.325
+        self.assertAlmostEqual(0.777, GUIDE_SCROLL_DOWN_FROM_Y, places=3)
+        self.assertAlmostEqual(0.325, GUIDE_SCROLL_DOWN_TO_Y, places=3)
+        # 往上找：按住 0.325 滑到 0.777
+        self.assertAlmostEqual(0.325, GUIDE_SCROLL_UP_FROM_Y, places=3)
+        self.assertAlmostEqual(0.777, GUIDE_SCROLL_UP_TO_Y, places=3)
+        # 两个方向各最多 20 次
+        self.assertEqual(20, GUIDE_SCROLL_MAX)
+        # 往下找 = 手指往上拖（终点 y 更小）；往上找相反
+        self.assertLess(GUIDE_SCROLL_DOWN_TO_Y, GUIDE_SCROLL_DOWN_FROM_Y,
+                        '往下找必须是手指往上拖（终点 y 更小）')
+        self.assertGreater(GUIDE_SCROLL_UP_TO_Y, GUIDE_SCROLL_UP_FROM_Y,
+                           '往上找必须是手指往下拖（终点 y 更大）')
 
     def test_all_guide_tasks_inherit_and_declare_matching_templates(self):
         import importlib
@@ -578,14 +589,11 @@ class TestGuideEntry(unittest.TestCase):
                          '还在用旧的 main_team 入口')
 
     def test_guide_scroll_stays_inside_list(self):
-        """滑动起止点必须落在列表范围内。
+        """滑动的起止点必须落在列表范围内。
 
-        这是实测踩过的坑：距离 0.35 时两个方向的终点分别到 0.170 / 0.870，
-        而列表实际范围（按 guide_listtop / guide_listbottom 标注量出来）是
-        0.162 ~ 0.828 —— 两端都滑出列表区域，手指按在列表外面拖动，
-        表现就是「按住往下滑没办法正常滚动」。
-
-        这里直接用标注里的真实位置算，距离改了也会被拦住。
+        这是实测踩过的坑：手指滑出列表区域，手势就不生效
+        （表现是"按住往下滑没办法正常滚动"）。现在用的是需求里给定的两条固定线，
+        这里直接从标注里算出列表范围来校验它们。
         """
         coco = json.load(open(COCO_PATH, encoding='utf-8'))
         cats = {c['id']: c['name'] for c in coco['categories']}
@@ -604,32 +612,59 @@ class TestGuideEntry(unittest.TestCase):
         bottom = centers['guide_listbottom']
         self.assertLess(top, bottom, 'guide_listtop 应该在 guide_listbottom 上面')
 
-        anchor = GUIDE_SCROLL_Y
-        dist = GUIDE_SCROLL_DISTANCE
-        self.assertGreater(anchor, top, '滑动锚点落在列表上边缘之外')
-        self.assertLess(anchor, bottom, '滑动锚点落在列表下边缘之外')
-        self.assertGreaterEqual(anchor - dist, top,
-                                f'手指往上拖的终点 {anchor - dist:.3f} 超出列表上边缘 {top:.3f}')
-        self.assertLessEqual(anchor + dist, bottom,
-                             f'手指往下拖的终点 {anchor + dist:.3f} 超出列表下边缘 {bottom:.3f}')
-        margin = min(anchor - dist - top, bottom - (anchor + dist))
-        self.assertGreater(margin, 0.02,
-                           f'终点离列表边缘只剩 {margin:.3f}，太贴边了，留点余量')
+        for label, y in (
+            ('往下找起点', GUIDE_SCROLL_DOWN_FROM_Y),
+            ('往下找终点', GUIDE_SCROLL_DOWN_TO_Y),
+            ('往上找起点', GUIDE_SCROLL_UP_FROM_Y),
+            ('往上找终点', GUIDE_SCROLL_UP_TO_Y),
+        ):
+            self.assertGreaterEqual(y, top, f'{label} {y:.3f} 超出了列表上边缘 {top:.3f}')
+            self.assertLessEqual(y, bottom, f'{label} {y:.3f} 超出了列表下边缘 {bottom:.3f}')
+
+    def test_guide_entry_uses_ocr(self):
+        """五个任务都要用 OCR 文字进指南，模板只作兜底。
+
+        改用 OCR 的原因：列表条目本身就是文字，OCR 认文字比模板匹配直接，
+        也不受标注质量影响。模板保留作 fallback（两条路都有更稳）。
+        """
+        import importlib
+        expected = {
+            'mission_task': '任务集会所',
+            'ranklist_task': '排行榜',
+            'pointrace_task': '积分赛',
+            'teamfight_task': '小队突袭',
+            'coinorgin_task': '丰饶之间',
+        }
+        for mod_name, text in expected.items():
+            mod = importlib.import_module(f'src.tasks.{mod_name}')
+            self.assertEqual(text, getattr(mod, 'GUIDE_TEXT', None),
+                             f'{mod_name} 的 OCR 目标文字应为「{text}」')
+            with open(f'src/tasks/{mod_name}.py', encoding='utf-8') as f:
+                src = f.read()
+            self.assertIn('enter_guide(GUIDE_TEXT', src,
+                          f'{mod_name} 没有用 OCR 文字调 enter_guide')
+            self.assertIn('item_feature=GUIDE_ITEM', src,
+                          f'{mod_name} 没有把模板作为兜底传进去')
+        # enter_guide 内部要先用 OCR 找条目，找不到才退回模板
+        with open('src/tasks/guide_nav.py', encoding='utf-8') as f:
+            gsrc = f.read()
+        on_screen = gsrc.split('def find_entry_on_screen')[1].split('def _sweep_entry')[0]
+        self.assertLess(on_screen.index('self.ocr('), on_screen.index('_safe_find_one('),
+                        'find_entry_on_screen 应该先 OCR，再退回模板')
+        self.assertIn('GO_TEXT_PATTERN', gsrc, '「前往」没有 OCR 兜底')
 
     def test_guide_stops_at_list_bounds(self):
         """到列表两端就不要再白滑了：listtop 停"往上"，listbottom 停"往下"。"""
-        from src.tasks.guide_nav import GUIDE_LISTBOTTOM, GUIDE_LISTTOP
         self.assertEqual('guide_listtop', GUIDE_LISTTOP)
         self.assertEqual('guide_listbottom', GUIDE_LISTBOTTOM)
         with open('src/tasks/guide_nav.py', encoding='utf-8') as f:
             src = f.read()
         self.assertIn('def at_guide_top', src)
         self.assertIn('def at_guide_bottom', src)
-        # find_in_guide 的两个方向都要有边界判断
-        find_body = src.split('def find_in_guide')[1].split('def exit_guide')[0]
-        self.assertIn('at_guide_bottom()', find_body,
+        sweep = src.split('def _sweep_entry')[1].split('def click_below')[0]
+        self.assertIn('at_guide_bottom()', sweep,
                       '往下找之前没有检查是否已到最底部')
-        self.assertIn('at_guide_top()', find_body,
+        self.assertIn('at_guide_top()', sweep,
                       '往上找之前没有检查是否已到最顶端')
 
     def test_stop_is_detected_for_both_stop_buttons(self):
@@ -694,22 +729,18 @@ class TestGuideEntry(unittest.TestCase):
                           f'{rel} 的{where}没有检查停止')
 
     def test_guide_detects_no_movement(self):
-        """「画面没动」的检测在 _sweep 里，两个方向共用；且要配合模板判据。
-
-        _sweep 按 to_bottom 参数处理两个方向，所以一处实现就覆盖两边，
-        find_in_guide 只需保证两个方向都调了 _sweep。
-        """
+        """「画面没动」的检测在 _sweep_entry 里，两个方向共用；且要配合模板判据。"""
         from src.tasks.guide_nav import GuideNavTask
         self.assertTrue(callable(getattr(GuideNavTask, 'list_thumb', None)))
         self.assertTrue(callable(getattr(GuideNavTask, 'list_moved', None)))
         with open('src/tasks/guide_nav.py', encoding='utf-8') as f:
             src = f.read()
-        sweep = src.split('def _sweep')[1].split('def exit_guide')[0]
-        self.assertIn('list_moved(', sweep, '_sweep 里没有"画面没动"的检测')
-        self.assertIn('to_bottom', sweep, '_sweep 没有按方向区分')
-        find_body = src.split('def find_in_guide')[1].split('def _sweep')[0]
-        self.assertEqual(2, find_body.count('self._sweep('),
-                         'find_in_guide 应该对两个方向各调一次 _sweep')
+        sweep = src.split('def _sweep_entry')[1].split('def click_below')[0]
+        self.assertIn('list_moved(', sweep, '_sweep_entry 里没有"画面没动"的检测')
+        self.assertIn('to_bottom', sweep, '_sweep_entry 没有按方向区分')
+        find_body = src.split('def find_entry_in_guide')[1].split('def find_entry_on_screen')[0]
+        self.assertEqual(2, find_body.count('self._sweep_entry('),
+                         'find_entry_in_guide 应该对两个方向各调一次 _sweep_entry')
 
     def test_guide_scroll_interval_is_one_second(self):
         """每次滑动之间要留足 1 秒。
@@ -742,7 +773,7 @@ class TestGuideEntry(unittest.TestCase):
         self.assertGreaterEqual(GUIDE_STUCK_TOLERANCE, 1)
         with open('src/tasks/guide_nav.py', encoding='utf-8') as f:
             src = f.read()
-        sweep = src.split('def _sweep')[1].split('def exit_guide')[0]
+        sweep = src.split('def _sweep_entry')[1].split('def click_below')[0]
         # 判定边界时必须看模板
         self.assertIn('at_guide_bottom()', sweep)
         self.assertIn('at_guide_top()', sweep)
@@ -753,9 +784,9 @@ class TestGuideEntry(unittest.TestCase):
         self.assertNotIn('画面没有变化（已到', sweep,
                          '不能把"画面没动"直接当成已到边界')
         # 找遍全程：两个方向都要扫
-        find_body = src.split('def find_in_guide')[1].split('def _sweep')[0]
-        self.assertIn('to_bottom=True', find_body, '没有先朝底部方向扫')
-        self.assertIn('to_bottom=False', find_body, '没有折返朝顶部方向扫')
+        find_body = src.split('def find_entry_in_guide')[1].split('def find_entry_on_screen')[0]
+        self.assertEqual(2, find_body.count('_sweep_entry('),
+                         'find_entry_in_guide 应该对两个方向各调一次 _sweep_entry')
 
     def test_combat_click_verify_covers_all_buttons(self):
         """战斗点击验证：间隔 6 秒，且包含通灵/密卷。"""

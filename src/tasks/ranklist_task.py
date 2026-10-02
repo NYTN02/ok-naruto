@@ -3,6 +3,7 @@ from src.tasks.guide_nav import GuideNavTask
 # 进入方式：走「指南」列表（原来是在主页面找 main_ranklist，
 # 每个玩家主页背景不同，经常匹配不到）
 GUIDE_ITEM = 'guide_ranklist'
+GUIDE_TEXT = '排行榜'   # 指南列表里条目的文字（OCR 识别）
 GUIDE_GO = 'guide_ranklistgo'
 
 
@@ -16,7 +17,7 @@ class RankListTask(GuideNavTask):
         self.log_info("开始排行榜点赞...")
 
         # 1. 走「指南」进入排行榜
-        if not self.enter_guide(GUIDE_ITEM, GUIDE_GO):
+        if not self.enter_guide(GUIDE_TEXT, GUIDE_GO, item_feature=GUIDE_ITEM):
             self.log_error("没能通过指南进入排行榜，任务终止")
             return
         self.sleep(1.5)

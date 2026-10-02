@@ -57,32 +57,33 @@ GUIDE_CANCEL = 'guide_cancel'   # 指南里的关闭按钮
 GUIDE_LISTTOP = 'guide_listtop'
 GUIDE_LISTBOTTOM = 'guide_listbottom'
 
-# 在指南列表上滑动的锚点（相对坐标）。列表固定在屏幕左侧那一列，
-# 用固定锚点比全屏乱滑稳。
-GUIDE_SCROLL_X = 0.090
-GUIDE_SCROLL_Y = 0.520
-
-# 每次拖动的距离（相对屏幕高度）。
+# 在指南列表上滑动的手势（相对坐标），由用户实测指定。
 #
-# ⚠️ 这个值必须保证**起点和终点都落在列表范围内**，否则手指会滑出列表区域、
-#    手势不生效（实测过：0.35 时终点分别到 0.170 / 0.870，而列表实际范围是
-#    0.162 ~ 0.828 —— 两端都出界了，往下拖那次基本没反应）。
-#    列表范围是按标注量出来的：
-#        guide_listtop     rel y = 0.162
-#        guide_listbottom  rel y = 0.828
-#    锚点在 0.520，理论上限是 min(0.520-0.162, 0.828-0.520) = 0.308，
-#    再留点余量取 0.24 => 终点 0.280 / 0.760，稳稳在列表内。
-GUIDE_SCROLL_DISTANCE = 0.24
+# 列表固定在屏幕左侧那一列（x 取 0.100），两个方向各是一条固定的起止线：
+#
+#   往下找（想看列表更下面的内容）：按住 (0.100, 0.777) 滑到 (0.100, 0.325) 再松手
+#   往上找（想看列表更上面的内容）：按住 (0.100, 0.325) 滑到 (0.100, 0.777) 再松手
+#
+# 注意手指方向和内容方向是反的：往下找时手指是**往上**拖的。
+# 起点/终点都落在列表范围内（按标注量出来列表约 0.162 ~ 0.828），不会滑出列表。
+GUIDE_SCROLL_X = 0.100
+GUIDE_SCROLL_DOWN_FROM_Y = 0.777    # 往下找：起点（手指按住这里）
+GUIDE_SCROLL_DOWN_TO_Y = 0.325      # 往下找：终点（拖到这里再松手）
+GUIDE_SCROLL_UP_FROM_Y = 0.325      # 往上找：起点
+GUIDE_SCROLL_UP_TO_Y = 0.777        # 往上找：终点
+
 GUIDE_SCROLL_SETTLE = 0.35      # 拖到终点后再按住多久才松开
 # 松手后等多久再去看画面。
 #
 # ⚠️ 这个值不能太小（当前 1 秒）：列表松手后还会靠惯性继续滚一会儿，
-#    如果立刻做模板匹配，画面还在动/还在滚，就会出现
-#    「明明画面里已经有要找的模板，却判定成没找到」的假失败 ——
+#    如果立刻做匹配/OCR，画面还在动/还在滚，就会出现
+#    「明明画面里已经有要找的东西，却判定成没找到」的假失败 ——
 #    实测 0.6 秒时就会偶发，所以固定给足 1 秒。
 #    它同时也是"两次滑动之间的间隔"。
 GUIDE_SCROLL_AFTER = 1.0
-GUIDE_SCROLL_MAX = 10           # 单向最多滑几次
+
+# 每个方向最多重复滑动多少次（用户指定：往下找、往上找各 20 次）
+GUIDE_SCROLL_MAX = 20
 
 # ---------------------------------------------------------------------------
 # 「列表有没有真的动」——只用来发现"滑动出问题"，**不用来判定边界**
@@ -107,6 +108,9 @@ GUIDE_GO_WAIT = 1.8
 
 # 「立刻前往」这类入口文字的匹配（用正则做包含匹配，避免 OCR 多字少字就失配）
 DAILY_TASK_PATTERN = re.compile(r'每日任务')
+
+# 指南条目点开后的「前往」按钮文字。模板认不到时用它兜底。
+GO_TEXT_PATTERN = re.compile(r'前往')
 
 
 class GuideNavTask(PageNavTask):
@@ -199,20 +203,21 @@ class GuideNavTask(PageNavTask):
                                  f"滑动会一直做到次数上限")
 
     def scroll_guide(self, to_bottom=True):
-        """在指南列表上滑一次（锚点 rel 0.090, 0.520）。
+        """在指南列表上滑一次（手势起止点见模块开头的 GUIDE_SCROLL_* 常量）。
 
-        ``to_bottom=True``  -> 想看列表**更下面**的内容：手指**往上**拖
-        ``to_bottom=False`` -> 想看列表**更上面**的内容：手指**往下**拖
+        ``to_bottom=True``  -> 想看列表**更下面**的内容：按住 0.777 滑到 0.325
+        ``to_bottom=False`` -> 想看列表**更上面**的内容：按住 0.325 滑到 0.777
 
         手指方向和内容方向是反的，很容易搞混，所以参数按"想看哪边的内容"命名：
-        手指往下拖时内容跟着往下走，看到的是更上面的条目
-        （用户描述的「按住往下滑动（滚动向上的意思）」就是这个方向）。
+        手指往上拖时内容跟着往上走，看到的是更下面的条目。
         """
         x = int(self.width * GUIDE_SCROLL_X)
-        y_from = int(self.height * GUIDE_SCROLL_Y)
-        # 想看更下面 => 手指往上 => 终点 y 更小
-        delta = -GUIDE_SCROLL_DISTANCE if to_bottom else GUIDE_SCROLL_DISTANCE
-        y_to = int(self.height * (GUIDE_SCROLL_Y + delta))
+        if to_bottom:
+            y_from = int(self.height * GUIDE_SCROLL_DOWN_FROM_Y)
+            y_to = int(self.height * GUIDE_SCROLL_DOWN_TO_Y)
+        else:
+            y_from = int(self.height * GUIDE_SCROLL_UP_FROM_Y)
+            y_to = int(self.height * GUIDE_SCROLL_UP_TO_Y)
         self.gesture(x, y_from, x, y_to)
 
     def list_thumb(self):
@@ -240,58 +245,119 @@ class GuideNavTask(PageNavTask):
         self.log_debug(f"[指南] 滑动前后画面差异 {diff:.2f} -> {'有变化' if moved else '没变化'}")
         return moved
 
-    def find_in_guide(self, feature, max_swipes=GUIDE_SCROLL_MAX):
-        """在整个指南列表里找 feature，找到返回它的 Box，否则 None。
+    def exit_guide(self):
+        """点 guide_cancel 退回主页面。"""
+        if self.click_feature(GUIDE_CANCEL, time_out=GUIDE_ITEM_TIMEOUT):
+            self.log_info(f"已点击 {GUIDE_CANCEL} 退出指南")
+            self.sleep(1.2)
+        else:
+            self.log_warning(f"没找到 {GUIDE_CANCEL}，改用通用方式退回主页面")
+        if not self.is_main_page():
+            self.back_to_main(max_rounds=12, interval=0.8, log=False)
 
-        边界判据**只认 guide_listtop / guide_listbottom**：
+    def enter_guide(self, item_text, go_feature, item_feature=None,
+                    max_swipes=GUIDE_SCROLL_MAX):
+        """走「指南」进入某个玩法。
 
-          * 看到 guide_listtop    => 已经在列表最顶端，不能再往顶部滑
-          * 看到 guide_listbottom => 已经在列表最底部，不能再往底部滑
+        :param item_text:    指南列表里条目的**文字**，用 OCR 识别并点击，
+                             如 '任务集会所' / '积分赛' / '排行榜' / '小队突袭' / '丰饶之间'
+        :param go_feature:   点完条目后出现的「前往」按钮模板，如 'guide_missiongo'
+        :param item_feature: 条目模板。OCR 认不出来时用它兜底（可选）。
+                             列表里条目文字随时可能被改，而模板是固定图案，
+                             两条路都有更稳。
 
-        注意「画面没动」**不算**到达边界 —— 它只说明这一下手势没生效
-        （滑到列表外面、或者被动画吃掉），那时如果手上没有边界标志，
-        就不能当成"到头了"收手，否则会把明明还能滚的列表判死、漏掉目标。
+        流程::
 
-        搜索方式是"扫全程"：先朝底部方向一路滑到底，再折返朝顶部方向滑到顶，
-        每一站都检查 feature —— 这样只要目标在列表里就一定能被看到，
-        不会因为一开始停在中段就错过。
+            点 main_guide
+              -> 滑动 + OCR 找到条目文字（找不到则用模板兜底）并点击
+              -> 点「前往」（模板优先，认不到再用 OCR 找「前往」）
 
-        方向 | 判据 | 画面没动时的处理
-        -----|------|------------------
-        往下 | guide_listbottom | 没看到边界 => 记为"滑动出问题"，重试几次仍不行才放弃该方向
-        往上 | guide_listtop    | 同上（对应 guide_listtop）
+        任何一步失败都会点 guide_cancel 退回主页面再返回 False，
+        让调用方干净地放弃这个任务，而不是停在半路。
         """
-        box = self._safe_find_one(feature)
+        # 1. main_guide 在主界面上，先确保在主页
+        if not self.is_main_page():
+            self.log_info("当前不在主页面，先退回主页面")
+            self.back_to_main(max_rounds=12, interval=0.8, log=False)
+
+        # 2. 点开指南
+        if not self.click_feature(GUIDE_ENTRY, time_out=GUIDE_ENTRY_TIMEOUT):
+            self.log_error(f"未找到 {GUIDE_ENTRY}，无法通过指南进入「{item_text}」")
+            return False
+        self.sleep(GUIDE_OPEN_WAIT)
+
+        # 3. 滑动 + OCR 找条目
+        box = self.find_entry_in_guide(item_text, item_feature, max_swipes)
+        if box is None:
+            self.log_warning(f"指南里滑遍都没找到「{item_text}」")
+            self.exit_guide()
+            return False
+
+        # 4. 点条目
+        self.click_box(box)
+        self.log_info(f"已点击「{item_text}」({box.x}, {box.y})")
+        self.sleep(GUIDE_ITEM_WAIT)
+
+        # 5. 点「前往」：先试模板，认不到再用 OCR 找「前往」两个字
+        if not self.click_feature(go_feature, time_out=GUIDE_GO_TIMEOUT):
+            self.log_warning(f"没找到 {go_feature}，改用 OCR 找「前往」")
+            if not self.click_text(GO_TEXT_PATTERN, time_out=GUIDE_GO_TIMEOUT):
+                self.log_warning(f"「{item_text}」的「前往」按钮也没识别到")
+                self.exit_guide()
+                return False
+        self.sleep(GUIDE_GO_WAIT)
+
+        self.log_info(f"已通过指南进入「{item_text}」")
+        return True
+
+    def find_entry_in_guide(self, item_text, item_feature=None, max_swipes=GUIDE_SCROLL_MAX):
+        """在指南列表里滑动找条目，返回它的 Box；找不到返回 None。
+
+        优先用 OCR 认文字（列表条目本身就是文字），认不到再用模板兜底。
+        两个方向各最多滑 ``max_swipes`` 次（默认 20）。
+        """
+        item_pattern = re.compile(re.escape(item_text))
+        templates = [item_feature] if item_feature else []
+
+        # 先看当前画面
+        box = self.find_entry_on_screen(item_pattern, templates)
         if box is not None:
-            self.log_info(f"[指南] 当前画面已看到 {feature}")
+            self.log_info(f"[指南] 当前画面已看到「{item_text}」")
             return box
 
-        # 先看看当前停在哪一端 —— 只作日志参考，真正的边界判断在 _sweep 里
-        top, bottom = self.at_guide_top(), self.at_guide_bottom()
-        if top:
-            self.log_info(f"[指南] 起点就在列表顶部（看到 {GUIDE_LISTTOP}）")
-        if bottom:
-            self.log_info(f"[指南] 起点就在列表底部（看到 {GUIDE_LISTBOTTOM}）")
-
-        # 第一步：朝底部方向扫到底
-        box = self._sweep(feature, to_bottom=True, max_swipes=max_swipes)
+        # 先朝底部方向找
+        box = self._sweep_entry(item_pattern, templates, to_bottom=True, max_swipes=max_swipes)
         if box is not None:
             return box
 
-        # 第二步：折返朝顶部方向扫到顶
-        # （即使第一步是因为"滑动出问题"提前结束的，也要继续扫另一边：
-        #   已经看到过某一端标志时，更要把另一端也走一遍，否则会漏掉目标）
-        box = self._sweep(feature, to_bottom=False, max_swipes=max_swipes * 2)
-        if box is not None:
-            return box
+        # 再折返朝顶部方向找
+        return self._sweep_entry(item_pattern, templates, to_bottom=False, max_swipes=max_swipes)
 
+    def find_entry_on_screen(self, item_pattern, templates):
+        """在当前画面里找条目：先 OCR 文字，再退回模板。"""
+        try:
+            boxes = self.ocr(match=[item_pattern])
+        except Exception as e:
+            self.log_debug(f"OCR 找条目出错: {e}")
+            boxes = None
+        if boxes:
+            box = boxes[0] if isinstance(boxes, list) else boxes
+            if all(hasattr(box, a) for a in ('x', 'y')):
+                self.log_info(f"[指南] OCR 认到「{item_pattern.pattern}」"
+                              f"({box.x}, {box.y})")
+                return box
+        for name in templates:
+            box = self._safe_find_one(name)
+            if box is not None:
+                self.log_info(f"[指南] OCR 没认到，改用模板 {name} 找到条目")
+                return box
         return None
 
-    def _sweep(self, feature, to_bottom, max_swipes):
-        """朝一个方向一路滑，每一站都检查 feature；找到就返回 Box，否则 None。
+    def _sweep_entry(self, item_pattern, templates, to_bottom, max_swipes):
+        """朝一个方向滑，每一站都找一次条目；找到返回 Box，否则 None。
 
-        边界**只由模板判定**。画面没动但没看到边界标志时，判定为滑动出问题：
-        记 error 并重试同一个方向，连续 ``GUIDE_STUCK_TOLERANCE`` 次都滑不动才放弃。
+        边界只由 guide_listtop / guide_listbottom 判定；
+        画面没动又没有边界标志 => 判定为滑动出问题，重试几次仍不行才放弃。
         """
         direction = '下' if to_bottom else '上'
         boundary = GUIDE_LISTBOTTOM if to_bottom else GUIDE_LISTTOP
@@ -309,13 +375,13 @@ class GuideNavTask(PageNavTask):
                 self.log_info(f"[指南] 已经到顶（看到 {GUIDE_LISTTOP}），停止往{direction}找")
                 return None
 
-            self.log_info(f"[指南] 往{direction}找 {i}/{max_swipes}：{feature}")
+            self.log_info(f"[指南] 往{direction}找 {i}/{max_swipes}：「{item_pattern.pattern}」")
             before = self.list_thumb()
             self.scroll_guide(to_bottom=to_bottom)
 
-            box = self._safe_find_one(feature)
+            box = self.find_entry_on_screen(item_pattern, templates)
             if box is not None:
-                self.log_info(f"[指南] 往{direction}找 {i} 次后找到 {feature}")
+                self.log_info(f"[指南] 往{direction}找 {i} 次后找到「{item_pattern.pattern}」")
                 return box
 
             if self.list_moved(before, self.list_thumb()):
@@ -323,7 +389,6 @@ class GuideNavTask(PageNavTask):
                 continue
 
             # ---- 画面没动：不是边界，是滑动出问题 ----
-            # 再确认一次边界（画面停住的那一刻边界标志可能刚好滚进来）
             if to_bottom and self.at_guide_bottom():
                 self.log_info(f"[指南] 已经到底（看到 {GUIDE_LISTBOTTOM}），停止往{direction}找")
                 return None
@@ -342,60 +407,6 @@ class GuideNavTask(PageNavTask):
             self.sleep(0.5)
 
         return None
-
-
-    def exit_guide(self):
-        """点 guide_cancel 退回主页面。"""
-        if self.click_feature(GUIDE_CANCEL, time_out=GUIDE_ITEM_TIMEOUT):
-            self.log_info(f"已点击 {GUIDE_CANCEL} 退出指南")
-            self.sleep(1.2)
-        else:
-            self.log_warning(f"没找到 {GUIDE_CANCEL}，改用通用方式退回主页面")
-        if not self.is_main_page():
-            self.back_to_main(max_rounds=12, interval=0.8, log=False)
-
-    def enter_guide(self, item_feature, go_feature, max_swipes=GUIDE_SCROLL_MAX):
-        """走「指南」进入某个玩法：点指南 -> 滑到条目 -> 点条目 -> 点「前往」。
-
-        任何一步失败都会点 guide_cancel 退回主页面再返回 False，
-        让调用方干净地放弃这个任务，而不是停在半路。
-
-        :param item_feature: 指南列表里的条目模板，如 'guide_mission'
-        :param go_feature:   点完条目后出现的「前往」按钮模板，如 'guide_missiongo'
-        """
-        # 1. main_guide 在主界面上，先确保在主页
-        if not self.is_main_page():
-            self.log_info("当前不在主页面，先退回主页面")
-            self.back_to_main(max_rounds=12, interval=0.8, log=False)
-
-        # 2. 点开指南
-        if not self.click_feature(GUIDE_ENTRY, time_out=GUIDE_ENTRY_TIMEOUT):
-            self.log_error(f"未找到 {GUIDE_ENTRY}，无法通过指南进入 {item_feature}")
-            return False
-        self.sleep(GUIDE_OPEN_WAIT)
-
-        # 3. 滑动找条目
-        if self.find_in_guide(item_feature, max_swipes) is None:
-            self.log_warning(f"指南里滑遍都没找到 {item_feature}")
-            self.exit_guide()
-            return False
-
-        # 4. 点条目
-        if not self.click_feature(item_feature, time_out=GUIDE_ITEM_TIMEOUT):
-            self.log_warning(f"点击 {item_feature} 失败")
-            self.exit_guide()
-            return False
-        self.sleep(GUIDE_ITEM_WAIT)
-
-        # 5. 点「前往」
-        if not self.click_feature(go_feature, time_out=GUIDE_GO_TIMEOUT):
-            self.log_warning(f"没找到 {go_feature}（{item_feature} 的「前往」按钮）")
-            self.exit_guide()
-            return False
-        self.sleep(GUIDE_GO_WAIT)
-
-        self.log_info(f"已通过指南进入 {item_feature}")
-        return True
 
     # ------------------------------------------------------------------
     # OCR 辅助
