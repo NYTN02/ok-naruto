@@ -293,6 +293,32 @@ class TestWorkflowReleaseBody(unittest.TestCase):
                 return s
         return None
 
+    def test_run_tests_retries_once(self):
+        """测试文件失败后必须自动重跑一次，两次都失败才判定失败。
+
+        原因：TestMain 会拉起完整的 ok-script 栈（Qt + OCR），在 CI 上会偶发
+        无声崩溃（连 "Ran N tests" 都不打印），重跑即过 —— v0.1.6 因此误拦过一次发布。
+        重试一次消除环境偶发，确定性失败重跑仍会失败、照样被拦。
+        """
+        step = self._step('Run tests')
+        self.assertIsNotNone(step, '缺少 Run tests 步骤')
+        script = step['run']
+        # 只看会执行的代码行：注释里解释了为什么重试，不该算数
+        code = '\n'.join(ln for ln in script.splitlines() if not ln.strip().startswith('#'))
+        self.assertIn('$maxAttempts', code, '没有重试次数变量')
+        self.assertIn('$maxAttempts = 2', code, '重试次数应为 2（首次 + 重试 1 次）')
+        self.assertIn('-le $maxAttempts', code, '没有用 $maxAttempts 控制循环')
+        self.assertIn('failed, retrying', code, '没有输出重试提示')
+        self.assertIn('after $maxAttempts attempts', code, '最终报错应说明尝试了几次')
+
+    def test_run_tests_still_fails_on_persistent_failure(self):
+        """重试不能把门禁变成"永远通过"：两次都失败必须 throw。"""
+        step = self._step('Run tests')
+        code = '\n'.join(ln for ln in step['run'].splitlines()
+                         if not ln.strip().startswith('#'))
+        self.assertIn('$failed +=', code, '没有累计失败文件')
+        self.assertIn('throw "Tests failed in:', code, '两次都失败时没有中断构建')
+
     def test_generator_step_exists_and_precedes_release(self):
         self.assertIn('Build Release Body', self.names, '缺少生成 Release 正文的步骤')
         self.assertIn('Release', self.names)

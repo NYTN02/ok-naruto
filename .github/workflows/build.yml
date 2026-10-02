@@ -67,13 +67,32 @@ jobs:
           # 注意：PowerShell 步骤的最终退出码只看「最后一条原生命令」。
           # 模板原来的写法只跑 python -m unittest 而不检查 $LASTEXITCODE，
           # 于是前面的测试文件全挂了也可能判定为成功。这里每个文件都显式检查。
+          #
+          # 每个文件失败后**自动重跑一次**，两次都失败才算真失败。
+          # 原因是 TestMain 会拉起完整的 ok-script 栈（Qt + OCR），在 CI 上会偶发
+          # 无声崩溃 —— 连 unittest 的 "Ran N tests" 都不打印、退出码非 0，
+          # 重跑即过。v0.1.6 就因此误拦过一次发布。
+          # 重试一次能消除这类环境偶发，而确定性的失败重跑还是会失败、照样被拦。
+          $maxAttempts = 2   # 首次 + 重试 1 次
           $failed = @()
           Get-ChildItem -Path ".\tests\*.py" | ForEach-Object {
-              Write-Host "Running tests in $($_.FullName)"
-              python -m unittest $_.FullName
-              if ($LASTEXITCODE -ne 0) {
-                  Write-Host "::error::Tests failed in $($_.FullName)"
-                  $failed += $_.Name
+              $file = $_
+              $passed = $false
+              for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+                  if ($attempt -gt 1) {
+                      Write-Host "::warning::$($file.Name) failed, retrying (attempt $attempt/$maxAttempts)"
+                      Start-Sleep -Seconds 5
+                  }
+                  Write-Host "Running tests in $($file.FullName) (attempt $attempt/$maxAttempts)"
+                  python -m unittest $file.FullName
+                  if ($LASTEXITCODE -eq 0) {
+                      $passed = $true
+                      break
+                  }
+              }
+              if (-not $passed) {
+                  Write-Host "::error::Tests failed in $($file.FullName) after $maxAttempts attempts"
+                  $failed += $file.Name
               }
           }
           if ($failed.Count -gt 0) {
