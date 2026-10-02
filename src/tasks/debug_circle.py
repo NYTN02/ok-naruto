@@ -41,6 +41,16 @@ class DebugCircleTask(BaseTask):
         self.name = "战斗按钮校准"
         self.description = "在战斗界面运行，识别玩法布局、导出标注图并打印可复制的坐标表"
 
+    def _forced_profile(self):
+        """「火影忍者战斗布局」里显式指定的玩法；填「自动」或非法值返回 None。"""
+        try:
+            raw = self.get_global_config(LAYOUT_CONFIG_NAME) or {}
+        except Exception as e:
+            self.log_warning(f"读取「{LAYOUT_CONFIG_NAME}」失败，按自动识别校准: {e}")
+            return None
+        value = str(raw.get('玩法') or '').strip()
+        return value if value in LAYOUT_PROFILES else None
+
     def run(self):
         self.log_info("开始战斗按钮校准，请在 3 秒内停在战斗界面...")
         self.sleep(3)
@@ -61,18 +71,33 @@ class DebugCircleTask(BaseTask):
             matched = [n for n in CORE_BUTTONS if n in hits]
             self.log_info(f"  {name:5s} {score:.2f}  命中: {matched}")
 
-        profile, score, best_hits = select_profile(frame)
-        if profile is None:
+        auto_profile, auto_score, auto_hits = select_profile(frame)
+
+        # 「玩法」里显式指定了就按它校准：校准时通常正是想固定看某一套 HUD，
+        # 让自动识别去改判反而看不到想看的那套。
+        forced = self._forced_profile()
+        if forced is not None:
+            score, best_hits = score_profile(frame, *LAYOUT_PROFILES[forced])
+            layout, radii = LAYOUT_PROFILES[forced]
+            profile = forced
+            self.log_info(f"「玩法」配置里指定为「{forced}」，按它校准并出图"
+                          f"（自动识别结果: {auto_profile or '都不达标'} {auto_score:.2f}）")
+        elif auto_profile is None:
             self.log_warning(
-                f"没有布局档案达标（最高 {score:.2f}，需要 ≥{MIN_CORE_MATCH:.2f}）。"
+                f"没有布局档案达标（最高 {auto_score:.2f}，需要 ≥{MIN_CORE_MATCH:.2f}）。"
                 f"可能不在战斗界面，或是还没适配的新玩法。"
             )
             self.log_warning("为避免乱点，正式任务在识别不出布局时会拒绝出手。")
+            self.log_warning("如果当前确实在战斗界面，可以在「火影忍者战斗布局」里把"
+                             "「玩法」指定成对应玩法（副本 / 练习场）后重新校准。")
             layout, radii = LAYOUT_PROFILES['副本']
             profile = '副本(兜底)'
+            score, best_hits = auto_score, auto_hits
         else:
-            self.log_info(f"判定为「{profile}」玩法布局（得分 {score:.2f}）")
-            layout, radii = LAYOUT_PROFILES[profile]
+            self.log_info(f"判定为「{auto_profile}」玩法布局（得分 {auto_score:.2f}）")
+            layout, radii = LAYOUT_PROFILES[auto_profile]
+            profile = auto_profile
+            score, best_hits = auto_score, auto_hits
 
         # ---- 2. 打印候选圆，便于人工核对误检 ----
         circles = detect_circles(frame)

@@ -92,13 +92,26 @@ class CombatTask(PageNavTask):
         return mode, raw
 
     def resolve_profile(self, profile_name):
-        """取某套布局档案，并用配置里的坐标覆盖。
+        """取某套布局档案；只有在配置里**点名**了这套档案时才用配置坐标覆盖。
 
-        返回 ``(layout, radii)``。配置里非坐标的键（如「玩法」）会被 parse_layout
-        自动忽略。
+        返回 ``(layout, radii)``。
+
+        为什么自动模式下要忽略配置坐标
+        ----------------------------------------------------------------
+        「火影忍者战斗布局」里只有一张坐标表，但每个玩法的 HUD 完全不同。
+        如果自动模式也拿这张表去覆盖，就会把**被识别到的那套**布局改坏。
+
+        这个坑真实发生过：配置里混着副本的普攻/一技能/二技能/大招和练习场的
+        替身/密卷/通灵，自动识别到练习场之后坐标被覆盖成副本的，
+        点击全部落在背景上，表现就是「按钮校准不准、点了没反应」。
+
+        所以规则是：配置坐标只服务于「玩法」里显式选中的那一套；
+        选「自动」时一律用内置档案（那套坐标已经被人工实测校准过）。
         """
         layout, radii = LAYOUT_PROFILES[profile_name]
-        _, raw = self.get_layout_config()
+        mode, raw = self.get_layout_config()
+        if mode != profile_name:
+            return dict(layout), dict(radii)
         overrides = parse_layout(raw, {})
         layout = dict(layout)
         layout.update(overrides)
