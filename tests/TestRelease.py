@@ -707,6 +707,24 @@ class TestGuideEntry(unittest.TestCase):
         self.assertGreaterEqual(body.count('list_moved('), 2,
                                 '上下两个方向都要有"画面没动"的检查')
 
+    def test_guide_scroll_interval_is_one_second(self):
+        """每次滑动之间要留足 1 秒。
+
+        列表松手后还会惯性滚一会儿，间隔太短时画面还在动就去做模板匹配，
+        会出现「明明画面里已经有要找的模板，却判定成没找到」的假失败
+        （实测 0.6 秒时偶发）。这个值同时也是两次滑动之间的间隔。
+        """
+        from src.tasks.guide_nav import GUIDE_SCROLL_AFTER, GUIDE_SCROLL_SETTLE
+        self.assertGreaterEqual(GUIDE_SCROLL_AFTER, 1.0,
+                                f'松手后只等 {GUIDE_SCROLL_AFTER}s，太短会漏匹配')
+        self.assertGreater(GUIDE_SCROLL_SETTLE, 0, '终点按住时间应为正')
+        # gesture() 必须把 after 传下去，不能只写在常量里没人用
+        with open('src/tasks/guide_nav.py', encoding='utf-8') as f:
+            src = f.read()
+        gesture_body = src.split('def gesture')[1].split('def at_guide_top')[0]
+        self.assertIn('after_sleep=after', gesture_body,
+                      'gesture() 没有把间隔传给 swipe，常量等于没用')
+
     def test_combat_click_verify_covers_all_buttons(self):
         """战斗点击验证：间隔 6 秒，且包含通灵/密卷。"""
         from src.tasks.debug_combat_click import CLICK_INTERVAL, CLICK_ORDER
