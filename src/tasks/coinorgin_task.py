@@ -113,6 +113,10 @@ class CoinOrginTask(CombatTask):
         """
         gone_streak = 0
         for i in range(max_loops):
+            # 用户点了停止就立刻收手（这个循环最多 300 轮，不查会一直打下去）
+            if self.should_stop('战斗循环'):
+                return False
+
             # 主判据：结算界面 OCR（"经验"等）
             if i >= grace_loops and i % OCR_CHECK_EVERY == 0:
                 # 战斗途中可能弹「点击任意位置关闭」（被踢出 / 断线等）。
@@ -172,6 +176,8 @@ class CoinOrginTask(CombatTask):
         self.log_info("开始持续点击屏幕中央，跳过结算直到回到主界面...")
         self.sleep(1.0)
         for i in range(max_clicks):
+            if self.should_stop('结算点击'):
+                return False
             # 结算 / 领奖时可能弹「点击任意位置关闭」，先把它和后续弹窗清掉
             if self.dismiss_click_anywhere():
                 self.log_info("已处理「任意位置关闭」提示")

@@ -78,6 +78,8 @@ class TeamPrayTask(GuideNavTask):
         # ========== 5. 循环点 team_prayreward 和三个 getreward ==========
         max_rounds = 10
         for i in range(max_rounds):
+            if self.should_stop('组织祈福领奖'):
+                break
             clicked_any = False
 
             box = self.find_one('team_prayreward', threshold=0.8)

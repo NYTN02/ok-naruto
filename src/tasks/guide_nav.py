@@ -40,6 +40,9 @@
 import re
 import time
 
+import cv2
+import numpy as np
+
 from src.tasks.page_nav import PageNavTask
 
 # ---------------------------------------------------------------------------
@@ -73,6 +76,20 @@ GUIDE_SCROLL_DISTANCE = 0.24
 GUIDE_SCROLL_SETTLE = 0.35      # 拖到终点后再按住多久才松开
 GUIDE_SCROLL_AFTER = 0.6        # 松手后等列表停稳
 GUIDE_SCROLL_MAX = 10           # 单向最多滑几次
+
+# ---------------------------------------------------------------------------
+# 「列表有没有真的动」的判据
+#
+# 光靠 guide_listtop / guide_listbottom 两个模板不够：实测往上找的时候，
+# 大概第 7、8 次拖动就滑不动了 —— 说明已经到顶，但 guide_listtop 没被匹配到
+# （最后一项可能被滑过头露不全），于是会一直空滑到次数上限。
+#
+# 所以再加一道与模板无关的判据：对比滑动前后列表区域的画面，
+# 如果几乎没变化，就说明这个方向已经到边界了，直接收手。
+# ---------------------------------------------------------------------------
+GUIDE_LIST_SIG_X1, GUIDE_LIST_SIG_X2 = 0.05, 0.30   # 列表区域（相对坐标）
+GUIDE_LIST_SIG_Y1, GUIDE_LIST_SIG_Y2 = 0.18, 0.80
+GUIDE_LIST_MOVE_THRESHOLD = 2.0   # 平均灰度差小于这个值就认为"没动"
 
 # 各等待时长（秒）
 GUIDE_ENTRY_TIMEOUT = 5.0       # 等 main_guide 出现
@@ -187,17 +204,47 @@ class GuideNavTask(PageNavTask):
         y_to = int(self.height * (GUIDE_SCROLL_Y + delta))
         self.gesture(x, y_from, x, y_to)
 
+    def list_thumb(self):
+        """给指南列表区域算一张小灰度缩略图，用来判断滑动前后画面有没有变。"""
+        try:
+            frame = self.frame
+        except Exception as e:
+            self.log_debug(f"取画面失败，跳过「有没有动」判断: {e}")
+            return None
+        if frame is None:
+            return None
+        h, w = frame.shape[:2]
+        roi = frame[int(h * GUIDE_LIST_SIG_Y1):int(h * GUIDE_LIST_SIG_Y2),
+                    int(w * GUIDE_LIST_SIG_X1):int(w * GUIDE_LIST_SIG_X2)]
+        if roi.size == 0:
+            return None
+        return cv2.resize(cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY), (32, 32)).astype('int16')
+
+    def list_moved(self, before, after):
+        """滑动前后列表画面是否明显变化；拿不到画面时保守地当成"动了"。"""
+        if before is None or after is None:
+            return True
+        diff = float(np.abs(before - after).mean())
+        moved = diff > GUIDE_LIST_MOVE_THRESHOLD
+        self.log_debug(f"[指南] 滑动前后画面差异 {diff:.2f} -> {'有变化' if moved else '没变化'}")
+        return moved
+
     def find_in_guide(self, feature, max_swipes=GUIDE_SCROLL_MAX):
         """在指南列表里上下滑动找 feature，找到返回它的 Box，否则 None。
 
         先往下找（列表通常从上面开始），再往回往上找。
-        每一轮滑之前先看指南两端有没有到头：
 
-          * 看到 guide_listbottom => 已经在最底部，往下的方向再滑也没用，直接收手
-          * 看到 guide_listtop    => 已经在最顶端，往上的方向再滑也没用，直接收手
+        每滑一次都有两道"到头了"的检查，任一条命中就停止这个方向：
 
-        没有这个判断的话，到了边界还会一直空滑到次数上限：既浪费时间，
-        又会因为反复拖动让列表来回弹、更难定位。
+          1. **模板判据**：看到 guide_listbottom 说明已经在最底部；看到
+             guide_listtop 说明已经在最顶端。
+          2. **画面判据**：对比这次滑动前后的列表区域，画面几乎没变说明
+             这个方向已经滑不动了。
+
+        为什么两道都要：实测往上找的时候大概第 7、8 次拖动就滑不动了，
+        但 guide_listtop 没被匹配到（最后一项被滑过头、露不全），
+        只靠模板判据会一直空滑到次数上限 —— 既浪费时间，
+        反复拖动还会让列表来回弹、更难定位。
         """
         box = self._safe_find_one(feature)
         if box is not None:
@@ -206,11 +253,17 @@ class GuideNavTask(PageNavTask):
 
         # ---- 往下找：手指往上拖 ----
         for i in range(1, max_swipes + 1):
+            if self.should_stop('指南滑动'):
+                return None
             if self.at_guide_bottom():
                 self.log_info(f"[指南] 已经到底（看到 {GUIDE_LISTBOTTOM}），停止往下找")
                 break
             self.log_info(f"[指南] 往下找 {i}/{max_swipes}：{feature}")
+            before = self.list_thumb()
             self.scroll_guide(to_bottom=True)
+            if not self.list_moved(before, self.list_thumb()):
+                self.log_info("[指南] 滑动后画面没有变化（已到底），停止往下找")
+                break
             box = self._safe_find_one(feature)
             if box is not None:
                 self.log_info(f"[指南] 往下找 {i} 次后找到 {feature}")
@@ -218,11 +271,17 @@ class GuideNavTask(PageNavTask):
 
         # ---- 往回往上找：手指往下拖 ----
         for i in range(1, max_swipes * 2 + 1):
+            if self.should_stop('指南滑动'):
+                return None
             if self.at_guide_top():
                 self.log_info(f"[指南] 已经到顶（看到 {GUIDE_LISTTOP}），停止往上找")
                 break
             self.log_info(f"[指南] 往上找 {i}/{max_swipes * 2}：{feature}")
+            before = self.list_thumb()
             self.scroll_guide(to_bottom=False)
+            if not self.list_moved(before, self.list_thumb()):
+                self.log_info("[指南] 滑动后画面没有变化（已到顶），停止往上找")
+                break
             box = self._safe_find_one(feature)
             if box is not None:
                 self.log_info(f"[指南] 往上找 {i} 次后找到 {feature}")

@@ -632,6 +632,81 @@ class TestGuideEntry(unittest.TestCase):
         self.assertIn('at_guide_top()', find_body,
                       '往上找之前没有检查是否已到最顶端')
 
+    def test_stop_is_detected_for_both_stop_buttons(self):
+        """两个「停止」入口都要能被检测到。
+
+        ok-script 的停止有两条完全不同的路：
+          * 任务卡片：TaskCard.stop_clicked() -> task.disable() + unpause()
+                     只置 _enabled=False，不动 exit_event
+          * 设备/截图页：executor.stop() -> exit_event.set()
+        只查 exit_is_set() 会漏掉任务栏那个 —— 那正是「在一键日常那栏点了停止
+        却还在继续操作」的原因。
+        """
+        from src.tasks.page_nav import _task_disabled
+        with open('src/tasks/page_nav.py', encoding='utf-8') as f:
+            src = f.read()
+        body = src.split('def stop_requested')[1].split('def should_stop')[0]
+        self.assertIn('exit_is_set()', body, '没有检查 executor 级别的停止')
+        self.assertIn('_task_disabled', body, '没有检查任务被 disable 的情况')
+
+        class _T:
+            def __init__(self, enabled):
+                self.enabled = enabled
+
+        self.assertFalse(_task_disabled(_T(True)))
+        self.assertTrue(_task_disabled(_T(False)))
+
+    def test_subtask_does_not_mistake_its_own_disabled_for_stop(self):
+        """子任务不能因为自己 _enabled=False 就被当成"已停止"。
+
+        一键日常是直接调子任务 run() 的，子任务实例通常从未被单独启用过，
+        _enabled 一直是 False。无脑把 False 当停止信号的话，
+        子任务会一上来就判定"已停止"、什么都不做。
+        """
+        with open('src/tasks/page_nav.py', encoding='utf-8') as f:
+            body = f.read().split('def stop_requested')[1].split('def should_stop')[0]
+        self.assertIn('_parent_task', body, '子任务没有走父任务判断')
+        self.assertIn('_saw_enabled', body, '缺少 _saw_enabled 兜底')
+
+    def test_daily_checks_stop_and_registers_parent(self):
+        """一键日常每轮查停止；并把父任务登记给子任务。"""
+        with open('src/tasks/daily_task.py', encoding='utf-8') as f:
+            src = f.read()
+        run_body = src.split('def run_sub_task')[0]
+        self.assertIn('should_stop(', run_body, '一键日常没有检查停止')
+        self.assertIn('_parent_task = self', src,
+                      '没有把父任务登记给子任务，子任务无法感知停止')
+        # 停止后不应该再去做收尾的"回到主页面"（用户已经要停了，别再操作游戏）
+        self.assertIn('已停止', run_body)
+
+    def test_long_loops_check_stop(self):
+        """耗时最长的几个循环必须查停止，否则点了停止要等很久才停。"""
+        for rel, where in (
+            ('src/tasks/coinorgin_task.py', '战斗循环'),
+            ('src/tasks/guide_nav.py', '指南滑动'),
+            ('src/tasks/mission_task.py', '任务集会所接取'),
+            ('src/tasks/pointrace_task.py', '积分赛挑战'),
+            ('src/tasks/team_praytask.py', '组织祈福领奖'),
+        ):
+            with open(rel, encoding='utf-8') as f:
+                src = f.read()
+            self.assertIn(f"should_stop('{where}')", src,
+                          f'{rel} 的{where}没有检查停止')
+
+    def test_guide_detects_no_movement(self):
+        """指南滑动除了模板判据，还要有"画面没动"的判据。
+
+        实测往上找时第 7、8 次就滑不动了，但 guide_listtop 没匹配到，
+        只靠模板会一直空滑到次数上限。
+        """
+        from src.tasks.guide_nav import GuideNavTask
+        self.assertTrue(callable(getattr(GuideNavTask, 'list_thumb', None)))
+        self.assertTrue(callable(getattr(GuideNavTask, 'list_moved', None)))
+        with open('src/tasks/guide_nav.py', encoding='utf-8') as f:
+            body = f.read().split('def find_in_guide')[1].split('def exit_guide')[0]
+        self.assertGreaterEqual(body.count('list_moved('), 2,
+                                '上下两个方向都要有"画面没动"的检查')
+
     def test_combat_click_verify_covers_all_buttons(self):
         """战斗点击验证：间隔 6 秒，且包含通灵/密卷。"""
         from src.tasks.debug_combat_click import CLICK_INTERVAL, CLICK_ORDER

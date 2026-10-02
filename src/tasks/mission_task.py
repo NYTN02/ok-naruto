@@ -83,6 +83,8 @@ class MissionTask(GuideNavTask):
         # 3. 循环接取任务
         accepted = 0
         for loop_count in range(1, MAX_ACCEPT_LOOP + 1):
+            if self.should_stop('任务集会所接取'):
+                break
             self.log_info(f"--- 第 {loop_count} 轮接取 ---")
             result = self.accept_one_mission()
 

@@ -71,6 +71,9 @@ class PointRaceTask(GuideNavTask):
         exit_reason = "正常结束"
 
         for loop in range(max_loops):
+            if self.should_stop('积分赛挑战'):
+                exit_reason = "已被停止"
+                break
             self.log_info(f"--- 第 {loop + 1} 轮 ---")
 
             # 2.1 检查挑战次数（在中间页面检测）

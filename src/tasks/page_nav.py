@@ -16,6 +16,34 @@ import re
 # 主页面的标志性元素
 MAIN_PAGE_FEATURE = 'main_adventure'
 
+
+def _task_disabled(task):
+    """任务是否已被「停止」置为不可用。
+
+    ok-script 的停止有两个完全不同的入口：
+
+      * 任务卡片上的停止 —— ``TaskCard.stop_clicked()`` 走的是
+        ``task.disable() + task.unpause()``，只把该任务的 ``_enabled`` 置为 False，
+        **不会**动 ``executor.exit_event``（那是设备/截图页停止按钮才做的）；
+      * 设备/截图页上的停止 —— ``executor.stop()`` -> ``exit_event.set()``。
+
+    所以两处都得看，只查 ``exit_is_set()`` 会漏掉任务栏那个按钮。
+    """
+    for attr in ('enabled', '_enabled'):
+        try:
+            value = getattr(task, attr)
+        except Exception:
+            continue
+        if isinstance(value, bool) and not value:
+            return True
+    try:
+        config = getattr(task, 'config', None)
+        if config is not None and config.get('_enabled') is False:
+            return True
+    except Exception:
+        pass
+    return False
+
 # 「点击任意位置关闭」这类提示的识别关键词。
 # 游戏里这种提示的文案不完全固定（中间可能夹字、也可能写成"点击任意位置继续"），
 # 所以用正则做包含匹配，不写死整句。
@@ -166,6 +194,62 @@ class PageNavTask(BaseTask):
         # 之后可能还有带 X 的弹窗（含 popu_cancel），逐个点掉直到回到主页面
         self.back_to_main(max_rounds=15, interval=0.8)
         return True
+
+    # ------------------------------------------------------------------
+    # 停止判断
+    # ------------------------------------------------------------------
+    def stop_requested(self):
+        """用户是否已经要求停止这个任务。
+
+        为什么要自己判断：ok-script 的「停止」有两个完全不同的入口 ——
+
+          * 任务卡片上的停止：``TaskCard.stop_clicked()`` 走
+            ``task.disable() + unpause()``，只把该任务的 ``_enabled`` 置成 False，
+            **不会**动 ``executor.exit_event``；
+          * 设备 / 截图页上的停止：``executor.stop()`` -> ``exit_event.set()``。
+
+        只查 ``exit_is_set()`` 会漏掉任务栏那个按钮 —— 这正是
+        「在一键日常那一栏点了停止，任务却还在继续操作」的原因。
+
+        还有一个坑：一键日常是把子任务的 ``run()`` 直接调起来的
+        （见 daily_task.run_sub_task），而子任务实例通常**从未被单独启用过**，
+        它自己的 ``_enabled`` 一直是 False。如果无脑把「enabled 为 False」
+        当成停止信号，子任务会一上来就判定成"已停止"、什么都不做。
+        所以只有当我们在本次运行里**见过它是启用的**（``_saw_enabled``）时，
+        才把 disable 当作停止信号。
+        """
+        # 1) executor 级别的停止：设备/截图页的停止按钮、退出程序
+        try:
+            if self.exit_is_set():
+                return True
+        except Exception:
+            pass
+
+        # 2) 作为子任务运行时，只看父任务（一键日常）
+        parent = getattr(self, '_parent_task', None)
+        if parent is not None:
+            return _task_disabled(parent)
+
+        # 3) 单独运行时看自己的 enabled
+        if _task_disabled(self):
+            if getattr(self, '_saw_enabled', False):
+                return True
+        else:
+            self._saw_enabled = True
+        return False
+
+    def should_stop(self, where=''):
+        """循环里用的语法糖：要停就记一条日志并返回 True。
+
+        用法::
+
+            if self.should_stop('战斗循环'):
+                return
+        """
+        if self.stop_requested():
+            self.log_warning(f"收到停止指令，中断{('：' + where) if where else ''}")
+            return True
+        return False
 
     # ------------------------------------------------------------------
     # 内部小工具

@@ -109,15 +109,27 @@ class DailyTask(PageNavTask):
         for i, (_, label) in enumerate(selected, 1):
             self.log_info(f"计划 [{i}/{total}] {label}")
         self.info_set("进度", f"0/{total}")
+        # 每次从头开始：清掉上一次的运行痕迹（有没有失败、进度到哪）
+        self.info_set("成功", "")
+        self.info_set("失败任务", "")
 
         # 1. 起始状态：先回到主页面
+        if self.should_stop('开始前'):
+            return
         if self.back_to_main(max_rounds=20, interval=1.0):
             self.log_info("已回到主页面，开始执行日常")
         else:
             self.log_warning("开始前未能确认回到主页面，仍会继续尝试各任务")
 
         succeeded, failed = [], []
+        stopped = False
         for i, (cls, label) in enumerate(selected, 1):
+            # 每轮开头都查一次停止：任务栏的「停止」只置 _enabled=False，
+            # 不做这个检查的话点了停止还会一路跑完（实测踩过）。
+            if self.should_stop('一键日常'):
+                stopped = True
+                break
+
             self.log_info(f"===== [{i}/{total}] {label} 开始 =====")
 
             # 2. 任务间回到主页面：不在主页才退，避免白等
@@ -140,7 +152,14 @@ class DailyTask(PageNavTask):
 
             self.info_set("进度", f"{i}/{total}")
 
-        # 4. 收尾：回到主页面
+        # 4. 收尾
+        if stopped or self.should_stop('收尾'):
+            self.log_warning(f"一键日常已被停止，剩余任务不再执行"
+                             f"（已完成 {len(succeeded)}/{total}）")
+            self.info_set("成功", f"{len(succeeded)}/{total}（已停止）")
+            self.info_set("进度", f"{len(succeeded)}/{total}（已停止）")
+            return
+
         self.back_to_main(max_rounds=ENSURE_MAIN_ROUNDS,
                           interval=ENSURE_MAIN_INTERVAL)
 
@@ -185,6 +204,10 @@ class DailyTask(PageNavTask):
         task.info = self.info
         task.start_time = time.time()
         task.running = True
+        # 让子任务知道自己的父任务是谁 —— 子任务的 stop_requested() 靠这个
+        # 判断"一键日常被停了没有"（子任务自己从未被单独启用过，
+        # 不能拿它自己的 _enabled 当判据）。见 page_nav.stop_requested()。
+        task._parent_task = self
         try:
             task.run()
             return True
@@ -200,3 +223,4 @@ class DailyTask(PageNavTask):
         finally:
             task.running = False
             task.info = old_info
+            task._parent_task = None
