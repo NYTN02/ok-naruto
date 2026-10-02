@@ -109,6 +109,91 @@ jobs:
         id: build-app
         uses: ok-oldking/pyappify-action@master #使用pyappify打包exe
 
+      # 自动生成 Release 正文。
+      # 关键点是**枚举实际产物**而不是维护一份手写清单：
+      # pyappify 之前悄悄多产出了 online-setup.exe 和 win32_sha256.txt，
+      # 而正文里是硬编码的清单，于是这两个文件被漏掉了很久没人发现。
+      # 现在认不出来的文件也会被列进表格（标注「说明待补充」），不会再静默漏掉。
+      - name: Build Release Body
+        shell: pwsh
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+          START_TAG: ${{ steps.sync.outputs.start_tag }}
+          END_TAG: ${{ steps.sync.outputs.end_tag }}
+          # 经过 env 传递，避免提交信息里的引号破坏 shell 语法
+          CHANGES: ${{ steps.sync.outputs.changes_with_asterisk }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dist = 'pyappify_dist'
+          $base = "https://github.com/$env:REPO/releases/download/$env:TAG"
+
+          # 顺序即表格里的显示顺序：推荐的排最前，不能用的（zip）和校验文件排最后
+          $order = @('China-setup.exe', 'Global-setup.exe', 'online-setup.exe', 'sha256.txt', 'win32.zip')
+          $desc = @{
+            'China-setup.exe'  = '**国内用户推荐**：自带运行环境，更新源走腾讯 CNB'
+            'Global-setup.exe' = '自带运行环境，更新源走 GitHub'
+            'online-setup.exe' = '在线安装包：只含启动器，安装时再下载运行环境。下载容易中断时可用'
+            'sha256.txt'       = '离线安装包的 SHA256 校验值'
+            'win32.zip'        = '**不要下载**，这是下次构建用的加速缓存，运行不了'
+          }
+
+          $files = Get-ChildItem $dist -File
+          if (-not $files) { throw "打包产物目录 $dist 是空的" }
+          Write-Host "打包产物 $($files.Count) 个: $($files.Name -join ', ')"
+
+          # 认不出来的产物排在 online 之后（rank 2.5），并标注待补充
+          $entries = foreach ($f in $files) {
+            $key = $null
+            foreach ($k in $order) { if ($f.Name -like "*$k") { $key = $k; break } }
+            $rank = 2.5
+            $text = '（新增产物，说明待补充）'
+            if ($key) {
+              $rank = [array]::IndexOf($order, $key)
+              $text = $desc[$key]
+            }
+            [pscustomobject]@{ File = $f; Rank = $rank; Desc = $text }
+          }
+
+          $body = @()
+          $body += "### 更新日志 $env:START_TAG -> $env:END_TAG"
+          $body += ''
+          $body += $env:CHANGES.Trim()
+          $body += ''
+          $body += '### 下载哪个（Windows）'
+          $body += ''
+          $body += '| 文件 | 体积 | 说明 |'
+          $body += '|---|---|---|'
+          foreach ($e in ($entries | Sort-Object Rank, @{ Expression = { $_.File.Name } })) {
+            $f = $e.File
+            $size = if ($f.Extension -eq '.txt') { '—' }
+                    else { "$([Math]::Round($f.Length / 1MB, 2)) MB" }
+            $body += "| [$($f.Name)]($base/$($f.Name)) | $size | $($e.Desc) |"
+          }
+          $body += ''
+          $body += '在意国内下载 / 自动更新速度的话选 China 包，它的更新源确定走腾讯 CNB。'
+          $body += ''
+          $body += '### 使用前提'
+          $body += ''
+          $body += '* 需要 MuMu 模拟器 12（目前只在 MuMu 上测试过，其它模拟器不保证可用）'
+          $body += '* 模拟器分辨率设为 16:9，推荐 1600x900'
+          $body += '* 游戏内按键布局保持默认（脚本按固定坐标点击技能 / 普攻 / 大招按钮）'
+          $body += '* 从游戏主页面运行，并先关掉所有活动 / 公告弹窗'
+          $body += '* 设备选择 `MuMuPlayer-12.0-0`（模拟器设备），不要选窗口'
+          $body += '* 模拟器需开启 ADB 调试（MuMu 默认端口 16384）'
+          $body += '* 杀软（火绒 / 360 等）若拦了 adb 写临时文件，程序会自动把 adb 的临时目录切到自身目录下的 `.tmp`'
+          $body += ''
+          $body += "**完整说明见 [README](https://github.com/$env:REPO/blob/master/README.md)。**"
+
+          # 显式写 UTF-8 无 BOM：PowerShell 5.1 的 Out-File -Encoding utf8 会写 BOM，
+          # pwsh 7 不会；BOM 混进 markdown 正文会影响渲染，所以两种版本都统一成无 BOM。
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText(
+            (Join-Path (Get-Location).Path 'release_body.md'),
+            ($body -join "`n"),
+            $utf8NoBom)
+          Write-Host "已生成 release_body.md（$((Get-Item release_body.md).Length) 字节）"
+
       - name: Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
@@ -116,23 +201,6 @@ jobs:
           draft: false
           # 带 '-' 的 tag（如 v0.1.1-beta.1）标为预发布，不要当成正式版
           prerelease: ${{ contains(github.ref_name, '-') }}
-          body: |
-            ###  更新日志 ${{ steps.sync.outputs.start_tag }} -> ${{ steps.sync.outputs.end_tag }}:
-              ${{ steps.sync.outputs.changes_with_asterisk }}          
-            ### 下载哪个（Windows）
-              | 文件 | 体积 | 说明 |
-              |---|---|---|
-              | ok-naruto-win32-China-setup.exe | ~194 MB | **国内用户推荐**：自带运行环境，更新源走腾讯 CNB |
-              | ok-naruto-win32-Global-setup.exe | ~194 MB | 自带运行环境，更新源走 GitHub |
-              | ok-naruto-win32-online-setup.exe | ~4 MB | 在线安装包：只含启动器，安装时再下载运行环境。下载容易中断时可用 |
-              | ok-naruto-win32.zip | ~5 MB | **不要下载**，这是下次构建用的加速缓存，运行不了 |
-              | win32_sha256.txt | — | 离线安装包的 SHA256 校验值 |
-
-              在意国内下载/自动更新速度的话选 China 包，它的更新源确定走腾讯 CNB。
-            ### 使用前提
-              * 需要 MuMu 模拟器 12，分辨率设为 1600x900（或其它 16:9）
-              * 游戏内按键布局保持默认
-              * 从游戏主页面运行，并先关掉活动弹窗
-              * 模拟器需开启 ADB 调试；脚本通过 ADB/IPC 与模拟器通信
-              * 杀软（火绒/360 等）若拦了 adb，程序会自动把 adb 的临时目录切到自身目录下的 .tmp
+          # 正文由上一步根据实际产物生成，不再手写文件清单
+          body_path: release_body.md
           files: pyappify_dist/*

@@ -253,5 +253,76 @@ class TestPackagingConfig(unittest.TestCase):
         self.assertTrue(name.isascii(), f'pyappify.yml 的 name 必须是纯英文: {name!r}')
 
 
+class TestWorkflowReleaseBody(unittest.TestCase):
+    """Release 正文由工作流自动生成，这里守住它的接线不能断。
+
+    背景：正文原来是手写的固定清单，而 pyappify 后来悄悄多产出了
+    online-setup.exe 和 win32_sha256.txt —— 手写清单不知道，于是这两个
+    文件在 Release 页面上被漏掉了很久。现在改成「枚举实际产物」生成，
+    并加这个用例防止有人改回手写、或把接线改错。
+    """
+
+    WORKFLOW = os.path.join('.github', 'workflows', 'build.yml')
+
+    @classmethod
+    def setUpClass(cls):
+        if yaml is None:
+            raise unittest.SkipTest('没有 pyyaml，跳过工作流检查')
+        with open(cls.WORKFLOW, encoding='utf-8') as f:
+            cls.cfg = yaml.safe_load(f)
+        cls.steps = cls.cfg['jobs']['build']['steps']
+        cls.names = [s.get('name') for s in cls.steps]
+
+    def _step(self, name):
+        for s in self.steps:
+            if s.get('name') == name:
+                return s
+        return None
+
+    def test_generator_step_exists_and_precedes_release(self):
+        self.assertIn('Build Release Body', self.names, '缺少生成 Release 正文的步骤')
+        self.assertIn('Release', self.names)
+        self.assertLess(
+            self.names.index('Build Release Body'), self.names.index('Release'),
+            '生成正文的步骤必须排在 Release 之前，否则 Release 读不到文件',
+        )
+
+    def test_release_uses_body_path_not_inline_body(self):
+        rel = self._step('Release')['with']
+        self.assertNotIn(
+            'body', rel,
+            'Release 又用回了手写的 body —— 手写清单会漏掉新产物，'
+            '请改回 body_path: release_body.md',
+        )
+        self.assertEqual('release_body.md', rel.get('body_path'))
+
+    def test_generator_gets_all_needed_env(self):
+        gen = self._step('Build Release Body')
+        self.assertEqual('pwsh', gen.get('shell'))
+        missing = {'TAG', 'REPO', 'START_TAG', 'END_TAG', 'CHANGES'} - set(gen.get('env') or {})
+        self.assertEqual(set(), missing, f'生成步骤缺少 env: {sorted(missing)}')
+
+    def test_generator_enumerates_artifacts_instead_of_hardcoding(self):
+        """必须枚举产物目录，且对认不出的产物有兜底文案。"""
+        script = self._step('Build Release Body')['run']
+        self.assertIn('Get-ChildItem', script, '生成脚本没有枚举产物目录')
+        self.assertIn('pyappify_dist', script)
+        self.assertIn(
+            '待补充', script,
+            '认不出的产物没有兜底说明，将来新增产物又会被静默漏掉',
+        )
+        # 写入必须显式无 BOM：PS 5.1 的 Out-File -Encoding utf8 会带 BOM，
+        # BOM 混进 markdown 会影响渲染。
+        # 只看真正会执行的代码行 —— 脚本注释里解释了为什么不用 Out-File，
+        # 那几行不该算数（一开始就是这么误判的）。
+        code_lines = [ln for ln in script.splitlines() if not ln.strip().startswith('#')]
+        code = '\n'.join(code_lines)
+        self.assertIn('UTF8Encoding($false)', code, '写入没有显式指定 UTF-8 无 BOM')
+        self.assertNotIn(
+            'Out-File', code,
+            '又在代码里用了 Out-File -Encoding utf8（PS 5.1 会写 BOM），请用 WriteAllText',
+        )
+
+
 if __name__ == '__main__':
     unittest.main()
