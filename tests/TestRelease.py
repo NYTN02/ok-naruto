@@ -694,18 +694,22 @@ class TestGuideEntry(unittest.TestCase):
                           f'{rel} 的{where}没有检查停止')
 
     def test_guide_detects_no_movement(self):
-        """指南滑动除了模板判据，还要有"画面没动"的判据。
+        """「画面没动」的检测在 _sweep 里，两个方向共用；且要配合模板判据。
 
-        实测往上找时第 7、8 次就滑不动了，但 guide_listtop 没匹配到，
-        只靠模板会一直空滑到次数上限。
+        _sweep 按 to_bottom 参数处理两个方向，所以一处实现就覆盖两边，
+        find_in_guide 只需保证两个方向都调了 _sweep。
         """
         from src.tasks.guide_nav import GuideNavTask
         self.assertTrue(callable(getattr(GuideNavTask, 'list_thumb', None)))
         self.assertTrue(callable(getattr(GuideNavTask, 'list_moved', None)))
         with open('src/tasks/guide_nav.py', encoding='utf-8') as f:
-            body = f.read().split('def find_in_guide')[1].split('def exit_guide')[0]
-        self.assertGreaterEqual(body.count('list_moved('), 2,
-                                '上下两个方向都要有"画面没动"的检查')
+            src = f.read()
+        sweep = src.split('def _sweep')[1].split('def exit_guide')[0]
+        self.assertIn('list_moved(', sweep, '_sweep 里没有"画面没动"的检测')
+        self.assertIn('to_bottom', sweep, '_sweep 没有按方向区分')
+        find_body = src.split('def find_in_guide')[1].split('def _sweep')[0]
+        self.assertEqual(2, find_body.count('self._sweep('),
+                         'find_in_guide 应该对两个方向各调一次 _sweep')
 
     def test_guide_scroll_interval_is_one_second(self):
         """每次滑动之间要留足 1 秒。
@@ -724,6 +728,34 @@ class TestGuideEntry(unittest.TestCase):
         gesture_body = src.split('def gesture')[1].split('def at_guide_top')[0]
         self.assertIn('after_sleep=after', gesture_body,
                       'gesture() 没有把间隔传给 swipe，常量等于没用')
+
+    def test_guide_boundary_only_uses_templates(self):
+        """边界只能由 guide_listtop / guide_listbottom 判定。
+
+        「画面没动」**不算**到达边界 —— 它只说明这一下手势没生效
+        （滑到列表外面 / 被动画吃掉）。如果把它当成"到头了"，
+        会把明明还能滚的列表判死、漏掉目标。
+        正确做法：画面没动又没有边界标志时，判为"滑动出问题"，
+        记 error 并重试；连续多次才放弃这个方向。
+        """
+        from src.tasks.guide_nav import GUIDE_STUCK_TOLERANCE
+        self.assertGreaterEqual(GUIDE_STUCK_TOLERANCE, 1)
+        with open('src/tasks/guide_nav.py', encoding='utf-8') as f:
+            src = f.read()
+        sweep = src.split('def _sweep')[1].split('def exit_guide')[0]
+        # 判定边界时必须看模板
+        self.assertIn('at_guide_bottom()', sweep)
+        self.assertIn('at_guide_top()', sweep)
+        # 画面没动但没边界标志 -> 判为滑动出问题（error），而不是边界
+        self.assertIn('滑动出问题', sweep)
+        self.assertIn('log_error', sweep)
+        # 不能出现"没动就直接 return/break 说已到头"的写法
+        self.assertNotIn('画面没有变化（已到', sweep,
+                         '不能把"画面没动"直接当成已到边界')
+        # 找遍全程：两个方向都要扫
+        find_body = src.split('def find_in_guide')[1].split('def _sweep')[0]
+        self.assertIn('to_bottom=True', find_body, '没有先朝底部方向扫')
+        self.assertIn('to_bottom=False', find_body, '没有折返朝顶部方向扫')
 
     def test_combat_click_verify_covers_all_buttons(self):
         """战斗点击验证：间隔 6 秒，且包含通灵/密卷。"""

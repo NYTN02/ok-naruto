@@ -85,18 +85,17 @@ GUIDE_SCROLL_AFTER = 1.0
 GUIDE_SCROLL_MAX = 10           # 单向最多滑几次
 
 # ---------------------------------------------------------------------------
-# 「列表有没有真的动」的判据
+# 「列表有没有真的动」——只用来发现"滑动出问题"，**不用来判定边界**
 #
-# 光靠 guide_listtop / guide_listbottom 两个模板不够：实测往上找的时候，
-# 大概第 7、8 次拖动就滑不动了 —— 说明已经到顶，但 guide_listtop 没被匹配到
-# （最后一项可能被滑过头露不全），于是会一直空滑到次数上限。
-#
-# 所以再加一道与模板无关的判据：对比滑动前后列表区域的画面，
-# 如果几乎没变化，就说明这个方向已经到边界了，直接收手。
+# 边界一律只认 guide_listtop / guide_listbottom 两个模板。
+# 画面没动只说明这一下手势没生效（滑到列表外面 / 被动画吃掉），
+# 那时如果手上没有边界标志，就不能当成"到头了"，否则会把明明还能滚的列表判死。
+# 连续 GUIDE_STUCK_TOLERANCE 次滑不动才放弃该方向（单次可能只是偶发）。
 # ---------------------------------------------------------------------------
 GUIDE_LIST_SIG_X1, GUIDE_LIST_SIG_X2 = 0.05, 0.30   # 列表区域（相对坐标）
 GUIDE_LIST_SIG_Y1, GUIDE_LIST_SIG_Y2 = 0.18, 0.80
 GUIDE_LIST_MOVE_THRESHOLD = 2.0   # 平均灰度差小于这个值就认为"没动"
+GUIDE_STUCK_TOLERANCE = 2         # 连续几次滑不动就放弃这个方向
 
 # 各等待时长（秒）
 GUIDE_ENTRY_TIMEOUT = 5.0       # 等 main_guide 出现
@@ -242,64 +241,108 @@ class GuideNavTask(PageNavTask):
         return moved
 
     def find_in_guide(self, feature, max_swipes=GUIDE_SCROLL_MAX):
-        """在指南列表里上下滑动找 feature，找到返回它的 Box，否则 None。
+        """在整个指南列表里找 feature，找到返回它的 Box，否则 None。
 
-        先往下找（列表通常从上面开始），再往回往上找。
+        边界判据**只认 guide_listtop / guide_listbottom**：
 
-        每滑一次都有两道"到头了"的检查，任一条命中就停止这个方向：
+          * 看到 guide_listtop    => 已经在列表最顶端，不能再往顶部滑
+          * 看到 guide_listbottom => 已经在列表最底部，不能再往底部滑
 
-          1. **模板判据**：看到 guide_listbottom 说明已经在最底部；看到
-             guide_listtop 说明已经在最顶端。
-          2. **画面判据**：对比这次滑动前后的列表区域，画面几乎没变说明
-             这个方向已经滑不动了。
+        注意「画面没动」**不算**到达边界 —— 它只说明这一下手势没生效
+        （滑到列表外面、或者被动画吃掉），那时如果手上没有边界标志，
+        就不能当成"到头了"收手，否则会把明明还能滚的列表判死、漏掉目标。
 
-        为什么两道都要：实测往上找的时候大概第 7、8 次拖动就滑不动了，
-        但 guide_listtop 没被匹配到（最后一项被滑过头、露不全），
-        只靠模板判据会一直空滑到次数上限 —— 既浪费时间，
-        反复拖动还会让列表来回弹、更难定位。
+        搜索方式是"扫全程"：先朝底部方向一路滑到底，再折返朝顶部方向滑到顶，
+        每一站都检查 feature —— 这样只要目标在列表里就一定能被看到，
+        不会因为一开始停在中段就错过。
+
+        方向 | 判据 | 画面没动时的处理
+        -----|------|------------------
+        往下 | guide_listbottom | 没看到边界 => 记为"滑动出问题"，重试几次仍不行才放弃该方向
+        往上 | guide_listtop    | 同上（对应 guide_listtop）
         """
         box = self._safe_find_one(feature)
         if box is not None:
             self.log_info(f"[指南] 当前画面已看到 {feature}")
             return box
 
-        # ---- 往下找：手指往上拖 ----
+        # 先看看当前停在哪一端 —— 只作日志参考，真正的边界判断在 _sweep 里
+        top, bottom = self.at_guide_top(), self.at_guide_bottom()
+        if top:
+            self.log_info(f"[指南] 起点就在列表顶部（看到 {GUIDE_LISTTOP}）")
+        if bottom:
+            self.log_info(f"[指南] 起点就在列表底部（看到 {GUIDE_LISTBOTTOM}）")
+
+        # 第一步：朝底部方向扫到底
+        box = self._sweep(feature, to_bottom=True, max_swipes=max_swipes)
+        if box is not None:
+            return box
+
+        # 第二步：折返朝顶部方向扫到顶
+        # （即使第一步是因为"滑动出问题"提前结束的，也要继续扫另一边：
+        #   已经看到过某一端标志时，更要把另一端也走一遍，否则会漏掉目标）
+        box = self._sweep(feature, to_bottom=False, max_swipes=max_swipes * 2)
+        if box is not None:
+            return box
+
+        return None
+
+    def _sweep(self, feature, to_bottom, max_swipes):
+        """朝一个方向一路滑，每一站都检查 feature；找到就返回 Box，否则 None。
+
+        边界**只由模板判定**。画面没动但没看到边界标志时，判定为滑动出问题：
+        记 error 并重试同一个方向，连续 ``GUIDE_STUCK_TOLERANCE`` 次都滑不动才放弃。
+        """
+        direction = '下' if to_bottom else '上'
+        boundary = GUIDE_LISTBOTTOM if to_bottom else GUIDE_LISTTOP
+        stuck_streak = 0
+
         for i in range(1, max_swipes + 1):
             if self.should_stop('指南滑动'):
                 return None
-            if self.at_guide_bottom():
-                self.log_info(f"[指南] 已经到底（看到 {GUIDE_LISTBOTTOM}），停止往下找")
-                break
-            self.log_info(f"[指南] 往下找 {i}/{max_swipes}：{feature}")
+
+            # ---- 边界判据：只认模板 ----
+            if to_bottom and self.at_guide_bottom():
+                self.log_info(f"[指南] 已经到底（看到 {GUIDE_LISTBOTTOM}），停止往{direction}找")
+                return None
+            if not to_bottom and self.at_guide_top():
+                self.log_info(f"[指南] 已经到顶（看到 {GUIDE_LISTTOP}），停止往{direction}找")
+                return None
+
+            self.log_info(f"[指南] 往{direction}找 {i}/{max_swipes}：{feature}")
             before = self.list_thumb()
-            self.scroll_guide(to_bottom=True)
-            if not self.list_moved(before, self.list_thumb()):
-                self.log_info("[指南] 滑动后画面没有变化（已到底），停止往下找")
-                break
+            self.scroll_guide(to_bottom=to_bottom)
+
             box = self._safe_find_one(feature)
             if box is not None:
-                self.log_info(f"[指南] 往下找 {i} 次后找到 {feature}")
+                self.log_info(f"[指南] 往{direction}找 {i} 次后找到 {feature}")
                 return box
 
-        # ---- 往回往上找：手指往下拖 ----
-        for i in range(1, max_swipes * 2 + 1):
-            if self.should_stop('指南滑动'):
+            if self.list_moved(before, self.list_thumb()):
+                stuck_streak = 0
+                continue
+
+            # ---- 画面没动：不是边界，是滑动出问题 ----
+            # 再确认一次边界（画面停住的那一刻边界标志可能刚好滚进来）
+            if to_bottom and self.at_guide_bottom():
+                self.log_info(f"[指南] 已经到底（看到 {GUIDE_LISTBOTTOM}），停止往{direction}找")
                 return None
-            if self.at_guide_top():
-                self.log_info(f"[指南] 已经到顶（看到 {GUIDE_LISTTOP}），停止往上找")
-                break
-            self.log_info(f"[指南] 往上找 {i}/{max_swipes * 2}：{feature}")
-            before = self.list_thumb()
-            self.scroll_guide(to_bottom=False)
-            if not self.list_moved(before, self.list_thumb()):
-                self.log_info("[指南] 滑动后画面没有变化（已到顶），停止往上找")
-                break
-            box = self._safe_find_one(feature)
-            if box is not None:
-                self.log_info(f"[指南] 往上找 {i} 次后找到 {feature}")
-                return box
+            if not to_bottom and self.at_guide_top():
+                self.log_info(f"[指南] 已经到顶（看到 {GUIDE_LISTTOP}），停止往{direction}找")
+                return None
+
+            stuck_streak += 1
+            self.log_error(
+                f"[指南] 往{direction}滑之后画面没有变化，"
+                f"但也没看到 {boundary} —— 判定为滑动出问题（手势没生效），"
+                f"第 {stuck_streak}/{GUIDE_STUCK_TOLERANCE} 次")
+            if stuck_streak >= GUIDE_STUCK_TOLERANCE:
+                self.log_error(f"[指南] 连续 {stuck_streak} 次滑不动，放弃往{direction}找")
+                return None
+            self.sleep(0.5)
 
         return None
+
 
     def exit_guide(self):
         """点 guide_cancel 退回主页面。"""
