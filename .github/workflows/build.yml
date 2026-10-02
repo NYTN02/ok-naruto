@@ -119,13 +119,20 @@ jobs:
           body: |
             ###  更新日志 ${{ steps.sync.outputs.start_tag }} -> ${{ steps.sync.outputs.end_tag }}:
               ${{ steps.sync.outputs.changes_with_asterisk }}          
-            ### 下载包说明
-              * [ok-naruto-win32-China-setup.exe](https://github.com/NYTN02/ok-naruto/releases/download/${{ github.ref_name }}/ok-naruto-win32-China-setup.exe) **国内用户推荐**，更新源走腾讯 CNB，下载和自动更新都更快
-              * [ok-naruto-win32-Global-setup.exe](https://github.com/NYTN02/ok-naruto/releases/download/${{ github.ref_name }}/ok-naruto-win32-Global-setup.exe) 更新源走 GitHub，适合能顺畅访问 GitHub 的用户
-              * 不要下载 `ok-naruto-win32.zip`，那是下次构建用的加速缓存，运行不了
+            ### 下载哪个（Windows）
+              | 文件 | 体积 | 说明 |
+              |---|---|---|
+              | ok-naruto-win32-China-setup.exe | ~194 MB | **国内用户推荐**：自带运行环境，更新源走腾讯 CNB |
+              | ok-naruto-win32-Global-setup.exe | ~194 MB | 自带运行环境，更新源走 GitHub |
+              | ok-naruto-win32-online-setup.exe | ~4 MB | 在线安装包：只含启动器，安装时再下载运行环境。下载容易中断时可用 |
+              | ok-naruto-win32.zip | ~5 MB | **不要下载**，这是下次构建用的加速缓存，运行不了 |
+              | win32_sha256.txt | — | 离线安装包的 SHA256 校验值 |
+
+              在意国内下载/自动更新速度的话选 China 包，它的更新源确定走腾讯 CNB。
             ### 使用前提
               * 需要 MuMu 模拟器 12，分辨率设为 1600x900（或其它 16:9）
               * 游戏内按键布局保持默认
               * 从游戏主页面运行，并先关掉活动弹窗
               * 模拟器需开启 ADB 调试；脚本通过 ADB/IPC 与模拟器通信
+              * 杀软（火绒/360 等）若拦了 adb，程序会自动把 adb 的临时目录切到自身目录下的 .tmp
           files: pyappify_dist/*
