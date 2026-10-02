@@ -54,7 +54,9 @@ class TestMyOneTimeTask(TaskTestCase):
             config_type["Drop Down Options Config"]["options_available"],
         )
         self.assertEqual("multi_selection", config_type["Multi Selection Config"]["type"])
-        self.assertEqual("global", config_type["Game Hotkey Config"]["type"])
+        # 演示用的全局配置项：原来是模板自带的 "Game Hotkey Config"，
+        # 键位配置停用后改成项目真正在用的战斗布局（见 src/config.py）
+        self.assertEqual("global", config_type["火影忍者战斗布局"]["type"])
         self.assertEqual("button", config_type["Button Config"]["type"])
         self.assertEqual("button", config_type["Button Options Config"]["type"])
         self.assertEqual(
@@ -203,11 +205,11 @@ class TestMyOneTimeTask(TaskTestCase):
         self.task.run()
 
         for key, value in self.task.config.items():
-            if key != "Game Hotkey Config":
+            if key != "火影忍者战斗布局":
                 self.assertEqual(self.task.translate_config_value(value), self.task.info_get(key))
         self.assertEqual(
-            dict(self.task.get_global_config("Game Hotkey Config")),
-            self.task.info_get("Game Hotkey Config"),
+            dict(self.task.get_global_config("火影忍者战斗布局")),
+            self.task.info_get("火影忍者战斗布局"),
         )
         self.assertEqual("下拉框值 1", self.task.info_get("Drop Down Config"))
         self.assertEqual("bool值 True", self.task.info_get("Boolean Config"))

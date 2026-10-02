@@ -19,30 +19,41 @@ gui_config = {
 if gui_config['type'] == 'web':
     gui_config['launch_mode'] = 'pywebview'
 
-key_config_option = ConfigOption('Game Hotkey Config', { #全局配置示例
-    'Echo Key': 'q',
-    'Liberation Key': 'r',
-    'Resonance Key': 'e',
-    'Tool Key': 't',
-}, description='In Game Hotkey for Skills')
-
-combat_keys_config = ConfigOption(
-    '火影忍者手游键位',
-    {
-        '一技能': 'j',        # 一技能
-        '二技能': 'k',        # 二技能
-        '大招': 'l',       # 大招
-        '普攻': 'u',  # 普攻
-        '替身': 'h',   # 替身
-        '密卷': 'i',  # 密卷
-        '通灵': 'o',         # 通灵
-        '上': 'w',        # 上
-        '下': 's',      # 下
-        '左': 'a',      # 左
-        '右': 'd',     # 右
-    },
-    description='火影忍者战斗键位（需与 MuMu 键鼠映射一致）填单个字母或数字。特殊键请用英文单词：空格=space，回车=enter，Esc=esc，Shift=shift，Tab=tab'
-)
+# ---- 键位（热键）配置：已停用 ----
+#
+# 本项目现在走 ADB / MuMu 原生 IPC 通道，用**点击坐标**出招，不再需要游戏键位。
+# 原因见 src/tasks/combat_ui.py 开头：ADB 的 send_key 注入的是 Android keyevent，
+# 而游戏的「按键映射」监听的是 Windows 键盘事件，两者不在一个层面 ——
+# 键位配置读得到、send_key 也不报错，但游戏毫无反应。
+#
+# 所以这里把两个键位配置项注释掉：它们只会在 GUI 全局设置里多出两个用不上的面板。
+# 配套改动：combat_task.py 里的 get_combat_keys / press_key_config 也一并注释，
+# 那两个方法本来就是死代码（全局搜索无任何调用）。
+#
+# key_config_option = ConfigOption('Game Hotkey Config', { #全局配置示例
+#     'Echo Key': 'q',
+#     'Liberation Key': 'r',
+#     'Resonance Key': 'e',
+#     'Tool Key': 't',
+# }, description='In Game Hotkey for Skills')
+#
+# combat_keys_config = ConfigOption(
+#     '火影忍者手游键位',
+#     {
+#         '一技能': 'j',        # 一技能
+#         '二技能': 'k',        # 二技能
+#         '大招': 'l',       # 大招
+#         '普攻': 'u',  # 普攻
+#         '替身': 'h',   # 替身
+#         '密卷': 'i',  # 密卷
+#         '通灵': 'o',         # 通灵
+#         '上': 'w',        # 上
+#         '下': 's',      # 下
+#         '左': 'a',      # 左
+#         '右': 'd',     # 右
+#     },
+#     description='火影忍者战斗键位（需与 MuMu 键鼠映射一致）填单个字母或数字。特殊键请用英文单词：空格=space，回车=enter，Esc=esc，Shift=shift，Tab=tab'
+# )
 
 combat_layout_config = ConfigOption(
     '火影忍者战斗布局',
@@ -110,7 +121,9 @@ config = {
     'debug': False,  # Optional, default: False
     'gui': gui_config,
     'config_folder': 'configs', #最好不要修改
-    'global_configs': [key_config_option, combat_keys_config, combat_layout_config],
+    # 键位（热键）配置已停用 —— 现在用 ADB 点击坐标出招，不需要游戏键位。
+    # 见文件上方被注释掉的 combat_keys_config。
+    'global_configs': [combat_layout_config],
     # 'screenshot_processor': make_bottom_right_black, # 在截图的时候对frame进行修改, 可选
     'gui_icon': 'icons/icon.png', #窗口图标, 最好不需要修改文件名
     'wait_until_before_delay': 0,

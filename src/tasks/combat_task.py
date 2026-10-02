@@ -46,35 +46,44 @@ class CombatTask(PageNavTask):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._combat_keys_cache = None
         self._layout_cache = None
         self._buttons = None
         self._profile = None
 
     # ------------------------------------------------------------------
-    # 键位（保留：仅 MuMu 窗口 + 键鼠映射模式有效，ADB 模式下游戏不响应）
+    # 键位（已停用）
     # ------------------------------------------------------------------
-    def get_combat_keys(self):
-        """读取全局配置里的战斗键位（缓存一次）"""
-        if self._combat_keys_cache is not None:
-            return self._combat_keys_cache
-        try:
-            self._combat_keys_cache = self.get_global_config('火影忍者手游键位')
-        except AttributeError:
-            self._combat_keys_cache = self.executor.get_global_config('火影忍者手游键位')
-        return self._combat_keys_cache
-
-    def press_key_config(self, key_name):
-        """按配置名发送按键（ADB 模式下游戏无响应，仅作兼容保留）"""
-        keys = self.get_combat_keys()
-        if not keys:
-            self.log_warning("未读取到键位配置")
-            return
-        key = keys.get(key_name)
-        if not key:
-            self.log_warning(f"未配置键位: {key_name}")
-            return
-        self.send_key(key)
+    #
+    # 本项目走 ADB / MuMu 原生 IPC 通道，用**点击坐标**出招，不再需要游戏键位。
+    # 原因是 ADB 的 send_key 注入 Android keyevent，而游戏的按键映射监听 Windows
+    # 键盘事件，两者不在一个层面（详见本文件开头与 combat_ui.py 的说明）——
+    # 表现就是「键位读得到、send_key 不报错，但游戏毫无反应」。
+    #
+    # 下面两个方法本来也没有任何调用方（全局搜索确认过），连同 config.py 里的
+    # 「火影忍者手游键位」配置项一起停用。将来若真要恢复，取消注释并把配置项
+    # 加回 global_configs 即可。
+    #
+    # def get_combat_keys(self):
+    #     """读取全局配置里的战斗键位（缓存一次）"""
+    #     if self._combat_keys_cache is not None:
+    #         return self._combat_keys_cache
+    #     try:
+    #         self._combat_keys_cache = self.get_global_config('火影忍者手游键位')
+    #     except AttributeError:
+    #         self._combat_keys_cache = self.executor.get_global_config('火影忍者手游键位')
+    #     return self._combat_keys_cache
+    #
+    # def press_key_config(self, key_name):
+    #     """按配置名发送按键（ADB 模式下游戏无响应）"""
+    #     keys = self.get_combat_keys()
+    #     if not keys:
+    #         self.log_warning("未读取到键位配置")
+    #         return
+    #     key = keys.get(key_name)
+    #     if not key:
+    #         self.log_warning(f"未配置键位: {key_name}")
+    #         return
+    #     self.send_key(key)
 
     # ------------------------------------------------------------------
     # 战斗布局
