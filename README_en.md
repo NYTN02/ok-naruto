@@ -109,9 +109,9 @@ Every item above can also be run on its own:
 * **Auto combat** — for dungeon modes, circle detection locates the normal-attack / skill / ultimate
   buttons and clicks them. No keyboard mapping needed.
 * **Auto popup closing** — a built-in "return to main screen" routine tries
-  `popu_cancel` / `reward_cancel` / `gacha_cancel` / `clean_cancel` / `activity_cancel` /
-  `activity_qiandaocancel` / `team_cancel` / `friend_cancel` / `coin_cancel`
-  to dismiss panels one layer at a time.
+  `popu_cancel` / `guide_cancel` / `reward_cancel` / `gacha_cancel` / `clean_cancel` /
+  `activity_cancel` / `activity_qiandaocancel` / `team_cancel` / `friend_cancel` /
+  `coin_cancel` to dismiss panels one layer at a time.
 
 ## 🔧 Troubleshooting
 

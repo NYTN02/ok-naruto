@@ -29,7 +29,11 @@ CLICK_ANYWHERE_PATTERNS = [
 # 这些都是 assets/coco_annotations.json 里已标注的特征名。
 CANCEL_FEATURES = [
     'popu_cancel',             # 通用弹窗右上角 X
-    'reward_cancel',           # 奖励界面关闭
+    # 走「指南」入口的任务（任务集会所/排行榜/积分赛/小队突袭/丰饶之间）
+    # 中途失败时可能停在指南界面上，必须有办法从那里退出来，
+    # 否则 back_to_main 会一直找不到可点的按钮、卡到超时。
+    'guide_cancel',
+    'reward_cancel',           # 奖励界面关闭（组织祈福走「每日任务」入口也会用到）
     'gacha_cancel',            # 抽卡/招募关闭
     'clean_cancel',            # 扫荡关闭
     'activity_cancel',         # 活动界面关闭

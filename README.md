@@ -125,9 +125,9 @@
 * **自动战斗**：副本类玩法用圆形识别自动定位普攻 / 技能 / 大招按钮并点击，
   不需要键盘映射，也不依赖模拟器键位方案。
 * **自动退出弹窗**：内置「回到主页面」能力，会依次尝试
-  `popu_cancel` / `reward_cancel` / `gacha_cancel` / `clean_cancel` /
-  `activity_cancel` / `activity_qiandaocancel` / `team_cancel` /
-  `friend_cancel` / `coin_cancel` 把当前面板逐层关掉。
+  `popu_cancel` / `guide_cancel` / `reward_cancel` / `gacha_cancel` /
+  `clean_cancel` / `activity_cancel` / `activity_qiandaocancel` /
+  `team_cancel` / `friend_cancel` / `coin_cancel` 把当前面板逐层关掉。
 
 ## 🔧 疑难解答
 
