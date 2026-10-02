@@ -1,6 +1,10 @@
 from ok import BaseTask
 import time
 
+# 等 personal_share 出现的超时（秒）。
+# 分享界面弹出后要加载一会儿，有时还要等推送动画，5 秒偏紧所以放宽到 15 秒。
+PERSONAL_SHARE_TIMEOUT = 15
+
 
 class ShareTask(BaseTask):
     def __init__(self, *args, **kwargs):
@@ -16,9 +20,10 @@ class ShareTask(BaseTask):
         self.log_info("已点击分享入口")
         self.sleep(1.5)
 
-        # 2. 点击 personal_share
-        if not self.safe_click_feature('personal_share', threshold=0.8, time_out=5):
-            self.log_error("未找到 personal_share，任务终止")
+        # 2. 点击 personal_share（等待时间放宽，见 PERSONAL_SHARE_TIMEOUT）
+        if not self.safe_click_feature('personal_share', threshold=0.8,
+                                       time_out=PERSONAL_SHARE_TIMEOUT):
+            self.log_error(f"等了 {PERSONAL_SHARE_TIMEOUT} 秒仍未找到 personal_share，任务终止")
             return
         self.sleep(1.2)
 

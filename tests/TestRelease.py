@@ -33,6 +33,7 @@ from src.tasks.combat_ui import (
 )
 from src.tasks.daily_task import DAILY_TASKS, DailyTask
 from src.tasks.coinorgin_task import CoinOrginTask
+from src.tasks.guide_nav import GuideNavTask
 from src.tasks.mission_task import MAX_ACCEPT_RETRY, MissionTask
 from src.tasks.page_nav import (
     CANCEL_FEATURES,
@@ -62,6 +63,18 @@ REQUIRED_FEATURES = [
     # 积分赛（src/tasks/pointrace_task.py）：本队战力靠这个图标定位，
     # 读不到它就取不到数值，整个挑战流程都走不下去
     'pointrace_personalpower',
+    # 「指南」入口（src/tasks/guide_nav.py）：
+    # 任务集会所 / 排行榜 / 积分赛 / 小队突袭 / 丰饶之间 全靠它进入，
+    # 缺任何一个都会让对应任务直接进不去（原来是在主页找 main_* 图标，
+    # 每个玩家主页背景不同会匹配不到，所以统一改走指南）
+    'main_guide', 'guide_cancel',
+    'guide_mission', 'guide_missiongo',
+    'guide_ranklist', 'guide_ranklistgo',
+    'guide_pointrace', 'guide_pointracego',
+    'guide_teamfight', 'guide_teamfightgo',
+    'guide_coinorign', 'guide_coinorigngo',
+    # 组织祈福的新入口（主页面 main_reward -> 每日任务 -> reward_teampray）
+    'main_reward', 'reward_teampray',
 ]
 
 
@@ -452,6 +465,84 @@ class TestDailyTaskHardening(unittest.TestCase):
                 src = f.read()
             self.assertIn('dismiss_click_anywhere()', src,
                           f'{rel} 没有调用 dismiss_click_anywhere()')
+
+
+class TestGuideEntry(unittest.TestCase):
+    """「指南」入口重构（src/tasks/guide_nav.py）。
+
+    背景：每个玩家的主页面背景都不同，直接匹配 main_team / main_mission /
+    main_pointrace 这些主页图标经常失败。改成统一走「指南」列表：
+    点 main_guide -> 在固定锚点滑动找 guide_xxx -> 点它 -> 点 guide_xxxgo。
+
+    这个重构牵动 5 个任务 + 1 个组织祈福新入口，容易漏改，所以固化成用例。
+    """
+
+    # 任务 -> (条目模板, 前往按钮模板)，必须和任务文件里的常量一致
+    GUIDE_TASKS = {
+        'mission_task': ('guide_mission', 'guide_missiongo'),
+        'ranklist_task': ('guide_ranklist', 'guide_ranklistgo'),
+        'pointrace_task': ('guide_pointrace', 'guide_pointracego'),
+        'teamfight_task': ('guide_teamfight', 'guide_teamfightgo'),
+        'coinorgin_task': ('guide_coinorign', 'guide_coinorigngo'),
+    }
+
+    def test_guide_constants(self):
+        from src.tasks.guide_nav import GUIDE_CANCEL, GUIDE_ENTRY, GUIDE_SCROLL_X, GUIDE_SCROLL_Y
+        self.assertEqual('main_guide', GUIDE_ENTRY)
+        self.assertEqual('guide_cancel', GUIDE_CANCEL)
+        # 滑动锚点是需求里指定的位置
+        self.assertAlmostEqual(0.090, GUIDE_SCROLL_X, places=3)
+        self.assertAlmostEqual(0.520, GUIDE_SCROLL_Y, places=3)
+
+    def test_all_guide_tasks_inherit_and_declare_matching_templates(self):
+        import importlib
+        for mod_name, (item, go) in self.GUIDE_TASKS.items():
+            mod = importlib.import_module(f'src.tasks.{mod_name}')
+            self.assertEqual(item, mod.GUIDE_ITEM,
+                             f'{mod_name}.GUIDE_ITEM 应为 {item}')
+            self.assertEqual(go, mod.GUIDE_GO,
+                             f'{mod_name}.GUIDE_GO 应为 {go}')
+            # 拿到 enter_guide 才可能走指南入口
+            cls = next(
+                v for k, v in vars(mod).items()
+                if isinstance(v, type) and k.endswith('Task') and k != 'GuideNavTask'
+            )
+            self.assertTrue(issubclass(cls, GuideNavTask),
+                            f'{cls.__name__} 必须继承 GuideNavTask 才能用 enter_guide')
+            with open(f'src/tasks/{mod_name}.py', encoding='utf-8') as f:
+                src = f.read()
+            self.assertIn('enter_guide(', src,
+                          f'{mod_name} 没有调用 enter_guide()，入口没真正改过来')
+            # 旧的主页图标入口不应该还在用
+            self.assertNotIn(f"swipe_find('main_", src,
+                             f'{mod_name} 还在用 swipe_find 找 main_* 入口，应改走指南')
+
+    def test_teampray_uses_reward_entry(self):
+        """组织祈福改为 main_reward -> 每日任务 -> reward_teampray -> 立刻前往。"""
+        import src.tasks.team_praytask as tp
+        self.assertEqual('main_reward', tp.REWARD_ENTRY)
+        self.assertEqual('reward_teampray', tp.TEAMPRAY_ITEM)
+        self.assertEqual('立刻前往', tp.GO_TEXT)
+        self.assertTrue(issubclass(tp.TeamPrayTask, GuideNavTask))
+        with open('src/tasks/team_praytask.py', encoding='utf-8') as f:
+            src = f.read()
+        self.assertIn('enter_teampray', src)
+        self.assertIn('click_below(', src, '没有用 click_below 点条目正下方的按钮')
+        self.assertNotIn("swipe_find('main_team'", src,
+                         '还在用旧的 main_team 入口')
+
+    def test_combat_click_verify_covers_all_buttons(self):
+        """战斗点击验证：间隔 6 秒，且包含通灵/密卷。"""
+        from src.tasks.debug_combat_click import CLICK_INTERVAL, CLICK_ORDER
+        self.assertEqual(6.0, CLICK_INTERVAL)
+        for name in ('普攻', '一技能', '二技能', '大招', '替身', '密卷', '通灵'):
+            self.assertIn(name, CLICK_ORDER, f'战斗点击验证缺少 {name}')
+
+    def test_share_waits_longer_for_personal_share(self):
+        """每日分享等 personal_share 的时间放宽到 15 秒。"""
+        import src.tasks.share_task as st
+        self.assertEqual(15, st.PERSONAL_SHARE_TIMEOUT)
+        self.assertGreater(st.PERSONAL_SHARE_TIMEOUT, 5, '应比原来的 5 秒更长')
 
 
 if __name__ == '__main__':

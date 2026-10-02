@@ -1,7 +1,12 @@
-from ok import BaseTask
+from src.tasks.guide_nav import GuideNavTask
+
+# 进入方式：走「指南」列表（原来是在主页面找 main_ranklist，
+# 每个玩家主页背景不同，经常匹配不到）
+GUIDE_ITEM = 'guide_ranklist'
+GUIDE_GO = 'guide_ranklistgo'
 
 
-class RankListTask(BaseTask):
+class RankListTask(GuideNavTask):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.name = "排行榜点赞"
@@ -10,10 +15,9 @@ class RankListTask(BaseTask):
     def run(self):
         self.log_info("开始排行榜点赞...")
 
-        # 1. 滑动查找排行榜入口并点击
-        box = self.swipe_find('main_ranklist', max_swipes=4, click=True)
-        if not box:
-            self.log_error("未找到排行榜入口，任务终止")
+        # 1. 走「指南」进入排行榜
+        if not self.enter_guide(GUIDE_ITEM, GUIDE_GO):
+            self.log_error("没能通过指南进入排行榜，任务终止")
             return
         self.sleep(1.5)
 

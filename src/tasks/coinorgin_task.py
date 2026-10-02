@@ -1,10 +1,14 @@
 """丰饶之间（经验副本）自动化。
 
 流程（和最初的设计保持一致）：
-    主界面滑动找到「丰饶之间」入口 -> 点击 -> 点「挑战」进入战斗
+    主界面点「指南」进入丰饶之间 -> 点「挑战」进入战斗
     -> 识别战斗布局后，用点击技能按钮的方式打输出
     -> **OCR 看到「经验」（结算界面）就停止战斗循环**
     -> **持续点击屏幕中央跳过结算，直到出现 main_adventure 回到主界面**
+
+进入方式变化：原来是在主界面滑动找 ``main_coinorign`` 图标，但每个玩家的
+主页面背景不同、经常匹配不到；改成走「指南」列表（见 guide_nav.py），
+在固定位置滑动找 ``guide_coinorign`` 再点它的「前往」。
 
 关于出招方式：本项目走 ADB/IPC 通道，``send_key`` 注入的是 Android keyevent，
 火影忍者手游不响应；只有 ``click``（MuMu 原生触控注入）才有效。因此战斗循环
@@ -18,6 +22,10 @@ import re
 import time
 
 from src.tasks.combat_task import CombatTask
+
+# 进入方式：走「指南」列表
+GUIDE_ITEM = 'guide_coinorign'
+GUIDE_GO = 'guide_coinorigngo'
 
 # 战斗结算界面的关键词：看到任意一个就认为这一局打完了。
 # 注意用正则做包含匹配——ok-script 传纯字符串时是**精确匹配**，
@@ -46,10 +54,9 @@ class CoinOrginTask(CombatTask):
     def run(self):
         self.log_info("开始丰饶之间...")
 
-        # 1. 点击主界面丰饶之间入口
-        box = self.swipe_find('main_coinorign', max_swipes=4, click=True)
-        if not box:
-            self.log_error("未找到丰饶之间入口，任务终止")
+        # 1. 走「指南」进入丰饶之间
+        if not self.enter_guide(GUIDE_ITEM, GUIDE_GO):
+            self.log_error("没能通过指南进入丰饶之间，任务终止")
             return
         self.sleep(1.5)
 

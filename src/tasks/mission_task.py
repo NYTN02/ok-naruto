@@ -1,4 +1,9 @@
-from src.tasks.page_nav import PageNavTask
+from src.tasks.guide_nav import GuideNavTask
+
+# 进入方式：走「指南」列表（原来是在主页面找 main_mission，
+# 但每个玩家主页背景不同、经常匹配不到；指南列表位置固定得多）
+GUIDE_ITEM = 'guide_mission'
+GUIDE_GO = 'guide_missiongo'
 
 # 点了「接取」但没走到「出发」时，判定这一次接取失败；
 # 整轮下来一次都没接上，就点 popu_cancel 退回主页面重跑，
@@ -14,7 +19,7 @@ FAILED = 'failed'        # 点了「接取」却没走到「出发」
 ACCEPTED = 'accepted'    # 成功接取了一个
 
 
-class MissionTask(PageNavTask):
+class MissionTask(GuideNavTask):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.name = "任务集会所"
@@ -64,9 +69,8 @@ class MissionTask(PageNavTask):
         """
         self._last_round_had_attempt = False
 
-        # 1. 滑动查找任务集会所入口并点击
-        box = self.swipe_find('main_mission', max_swipes=4, click=True)
-        if not box:
+        # 1. 走「指南」进入任务集会所
+        if not self.enter_guide(GUIDE_ITEM, GUIDE_GO):
             return 'no_entry', 0
         self.sleep(1.2)  # 等待界面加载
 

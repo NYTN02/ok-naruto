@@ -1,5 +1,10 @@
-from ok import BaseTask
+from src.tasks.guide_nav import GuideNavTask
 import re
+
+# 进入方式：走「指南」列表（原来是在主页面找 main_pointrace，
+# 每个玩家主页背景不同，经常匹配不到）
+GUIDE_ITEM = 'guide_pointrace'
+GUIDE_GO = 'guide_pointracego'
 
 # 挑战没成功时额外重试的次数（1 表示最多打两次）
 CHALLENGE_RETRY = 1
@@ -15,7 +20,7 @@ POWER_REGION_WIDTH_RATIO = 2.5   # 向右扫的宽度 = 图标宽 × 这个倍�
 POWER_REGION_PAD_RATIO = 0.3
 
 
-class PointRaceTask(BaseTask):
+class PointRaceTask(GuideNavTask):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.name = "积分赛"
@@ -24,10 +29,9 @@ class PointRaceTask(BaseTask):
     def run(self):
         self.log_info("开始积分赛...")
 
-        # ========== 1. 进入积分赛 ==========
-        box = self.swipe_find('main_pointrace', max_swipes=4, click=True)
-        if not box:
-            self.log_error("未找到积分赛入口，任务终止")
+        # ========== 1. 走「指南」进入积分赛 ==========
+        if not self.enter_guide(GUIDE_ITEM, GUIDE_GO):
+            self.log_error("没能通过指南进入积分赛，任务终止")
             return
         self.sleep(1.2)
 

@@ -1,4 +1,4 @@
-from ok import BaseTask
+from src.tasks.guide_nav import DAILY_TASK_PATTERN, GuideNavTask
 
 # 点击 team_coinpray（祈福）时的尝试次数与间隔。
 # 这个按钮点下去之后界面会卡一下/有动画，一次不一定点得中，
@@ -6,8 +6,28 @@ from ok import BaseTask
 COINPRAY_ATTEMPTS = 3
 COINPRAY_INTERVAL = 2.0
 
+# ---------------------------------------------------------------------------
+# 进入方式：主页面 main_reward -> 「每日任务」 -> 左右滑动找 reward_teampray
+#          -> 点它正下方的「立刻前往」 -> 进入含 team_coinpray/team_prayreward 的界面
+#
+# 原来是主页面滑动找 main_team，但每个玩家主页背景不同、经常匹配不到，
+# 所以改走「每日任务」这条固定的入口。
+# ---------------------------------------------------------------------------
+REWARD_ENTRY = 'main_reward'        # 主页面上的每日任务/奖励入口
+TEAMPRAY_ITEM = 'reward_teampray'   # 每日任务列表里的组织祈福条目
+GO_TEXT = '立刻前往'                 # 条目正下方的按钮文字
 
-class TeamPrayTask(BaseTask):
+# 在每日任务列表上「按住屏幕中央 -> 左右拖动 -> 松开」
+REWARD_SCROLL_X = 0.5
+REWARD_SCROLL_Y = 0.5
+REWARD_SCROLL_DISTANCE = 0.35       # 每次拖动的距离（相对屏幕宽度）
+REWARD_SCROLL_MAX = 8               # 单向最多滑几次
+REWARD_ENTRY_TIMEOUT = 5.0
+REWARD_OPEN_WAIT = 1.8
+REWARD_ITEM_TIMEOUT = 3.0
+
+
+class TeamPrayTask(GuideNavTask):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.name = "组织祈福"
@@ -16,10 +36,9 @@ class TeamPrayTask(BaseTask):
     def run(self):
         self.log_info("开始组织祈福...")
 
-        # ========== 1. 进入组织 ==========
-        box = self.swipe_find('main_team', max_swipes=4, click=True)
-        if not box:
-            self.log_error("未找到组织入口，任务终止")
+        # ========== 1. 走「每日任务」进入祈福界面 ==========
+        if not self.enter_teampray():
+            self.log_error("没能进入祈福界面，任务终止")
             return
         self.sleep(1.5)
 
@@ -129,6 +148,106 @@ class TeamPrayTask(BaseTask):
                 self.sleep(COINPRAY_INTERVAL)
 
         return False
+
+    # ================= 进入祈福界面 =================
+
+    def enter_teampray(self):
+        """走「每日任务」进入组织祈福。
+
+        流程（按需求）：
+          1. 主页面点 main_reward
+          2. OCR 识别并点击「每日任务」
+          3. 按住屏幕中央左右滑动（每次都是按住-拖动-松开），
+             找到 reward_teampray
+          4. OCR 找 reward_teampray **正下方**的「立刻前往」并点击
+             -> 进入包含 team_coinpray / team_prayreward 的界面
+
+        任何一步失败都会退出到主页面再返回 False。
+        """
+        # 0. main_reward 在主界面上，先确保在主页
+        if not self.is_main_page():
+            self.log_info("当前不在主页面，先退回主页面")
+            self.back_to_main(max_rounds=12, interval=0.8, log=False)
+
+        # 1. 点 main_reward
+        if not self.click_feature(REWARD_ENTRY, time_out=REWARD_ENTRY_TIMEOUT):
+            self.log_error(f"未找到 {REWARD_ENTRY}，无法进入每日任务")
+            return False
+        self.sleep(REWARD_OPEN_WAIT)
+
+        # 2. OCR 点「每日任务」
+        if not self.click_text(DAILY_TASK_PATTERN, time_out=REWARD_ENTRY_TIMEOUT):
+            self.log_error("没找到「每日任务」")
+            self.exit_reward()
+            return False
+        self.sleep(REWARD_OPEN_WAIT)
+
+        # 3. 屏幕中央左右滑动找 reward_teampray
+        box = self.find_reward_item(TEAMPRAY_ITEM)
+        if box is None:
+            self.log_warning(f"每日任务里左右滑遍都没找到 {TEAMPRAY_ITEM}")
+            self.exit_reward()
+            return False
+
+        # 4. 点它正下方的「立刻前往」
+        if not self.click_below(box, GO_TEXT, time_out=REWARD_GO_TIMEOUT):
+            self.log_warning(f"没找到 {TEAMPRAY_ITEM} 正下方的「{GO_TEXT}」")
+            self.exit_reward()
+            return False
+        self.sleep(REWARD_OPEN_WAIT)
+
+        self.log_info("已进入组织祈福界面")
+        return True
+
+    def find_reward_item(self, feature, max_swipes=REWARD_SCROLL_MAX):
+        """在每日任务列表里左右滑动找条目，返回 Box 或 None。
+
+        先往左拖（看右边的内容），再往右拖（看回左边）。
+        """
+        box = self._safe_find_one(feature)
+        if box is not None:
+            self.log_info(f"[每日任务] 当前画面已看到 {feature}")
+            return box
+
+        for i in range(1, max_swipes + 1):
+            self.log_info(f"[每日任务] 向左滑 {i}/{max_swipes} 次找 {feature}")
+            self.scroll_reward(direction=1)
+            box = self._safe_find_one(feature)
+            if box is not None:
+                self.log_info(f"[每日任务] 向左滑 {i} 次后找到 {feature}")
+                return box
+
+        for i in range(1, max_swipes * 2 + 1):
+            self.log_info(f"[每日任务] 向右滑 {i}/{max_swipes * 2} 次找 {feature}")
+            self.scroll_reward(direction=-1)
+            box = self._safe_find_one(feature)
+            if box is not None:
+                self.log_info(f"[每日任务] 向右滑 {i} 次后找到 {feature}")
+                return box
+
+        return None
+
+    def scroll_reward(self, direction=1):
+        """在每日任务列表上「按住屏幕中央 -> 左右拖动 -> 松开」。
+
+        direction=1 往左拖（内容右移，看右边）；-1 反之。
+        """
+        y = int(self.height * REWARD_SCROLL_Y)
+        half = REWARD_SCROLL_DISTANCE / 2
+        x_from = int(self.width * (REWARD_SCROLL_X + (half if direction > 0 else -half)))
+        x_to = int(self.width * (REWARD_SCROLL_X - (half if direction > 0 else -half)))
+        self.gesture(x_from, y, x_to, y)
+
+    def exit_reward(self):
+        """从每日任务界面退出到主页面。
+
+        先试 reward_cancel（每日任务界面的关闭按钮），再退回主页面兜底。
+        """
+        if self.click_feature('reward_cancel', time_out=REWARD_ITEM_TIMEOUT):
+            self.log_info("已点击 reward_cancel")
+            self.sleep(1.2)
+        if not self.is_main_page():
+            self.back_to_main(max_rounds=12, interval=0.8, log=False)
 
     # ================= OCR 工具 =================
 

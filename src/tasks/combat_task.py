@@ -31,17 +31,18 @@ from src.tasks.combat_ui import (
     parse_layout,
     select_profile,
 )
-from src.tasks.page_nav import PageNavTask
+from src.tasks.guide_nav import GuideNavTask
 
 LAYOUT_CONFIG_NAME = '火影忍者战斗布局'
 MODE_KEY = '玩法'
 MODE_AUTO = '自动'
 
 
-class CombatTask(PageNavTask):
+class CombatTask(GuideNavTask):
     """战斗任务基类：布局识别、按钮定位和点击式技能操作。
 
-    同时继承了 PageNavTask 的页面导航能力（is_main_page / back_to_main 等）。
+    继承链：CombatTask -> GuideNavTask -> PageNavTask -> BaseTask，
+    所以战斗类任务同时具备「走指南入口进入」和「退回主页面」的能力。
     """
 
     def __init__(self, *args, **kwargs):

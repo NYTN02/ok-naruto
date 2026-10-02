@@ -1,6 +1,10 @@
-from src.tasks.page_nav import PageNavTask
+from src.tasks.guide_nav import GuideNavTask
 import re
 import time
+
+# 进入方式：走「指南」列表
+GUIDE_ITEM = 'guide_teamfight'
+GUIDE_GO = 'guide_teamfightgo'
 
 # 「邀请」列表上滑时的 x 坐标（相对屏幕宽度）。
 # 取很小的值贴着屏幕左边缘滑：这里不会压到邀请卡片本身，
@@ -12,7 +16,7 @@ INVITE_SWIPE_DURATION = 0.4
 INVITE_MAX_SWIPES = 5
 
 
-class TeamFightTask(PageNavTask):
+class TeamFightTask(GuideNavTask):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.name = "小队突袭"
@@ -25,10 +29,10 @@ class TeamFightTask(PageNavTask):
         for round_idx in range(2):
             self.log_info(f"===== 第 {round_idx + 1} 轮 =====")
 
-            # 1. 每轮都滑动查找 main_teamfight 并点击
-            box = self.swipe_find('main_teamfight', max_swipes=4, click=True)
-            if not box:
-                self.log_error("未找到小队突袭入口，任务终止")
+            # 1. 每轮都走「指南」进入小队突袭
+            #    （原来是主页面找 main_teamfight，每个玩家主页背景不同，常匹配不到）
+            if not self.enter_guide(GUIDE_ITEM, GUIDE_GO):
+                self.log_error("没能通过指南进入小队突袭，任务终止")
                 return
             self.sleep(1.5)
 
