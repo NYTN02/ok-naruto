@@ -88,13 +88,16 @@ class QianDaoTask(PageNavTask):
         self.sleep(1.2)
 
         # 5. 点签到
-        if self.safe_click_feature('activity_qiandao', threshold=0.8, time_out=5):
+        signed = self.safe_click_feature('activity_qiandao', threshold=0.8, time_out=5)
+        if signed:
             self.log_info("已点击签到")
         else:
-            self.log_warning("未找到 activity_qiandao（可能今天已经签到过了）")
+            # 没出现 activity_qiandao（比如今天已经签到过，或签到面板没弹出来），
+            # 直接走下面的关闭流程退回主页面
+            self.log_warning("未出现 activity_qiandao，直接点 activity_qiandaocancel 返回主页面")
         self.sleep(1.2)
 
-        # 6. 关掉签到面板回主页面
+        # 6. 关掉签到面板回主页面（上面两种情况都要做）
         if self.safe_click_feature('activity_qiandaocancel', threshold=0.8, time_out=5):
             self.log_info("已点击 activity_qiandaocancel")
         else:

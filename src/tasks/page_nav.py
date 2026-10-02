@@ -11,8 +11,19 @@
 
 from ok import BaseTask
 
+import re
+
 # 主页面的标志性元素
 MAIN_PAGE_FEATURE = 'main_adventure'
+
+# 「点击任意位置关闭」这类提示的识别关键词。
+# 游戏里这种提示的文案不完全固定（中间可能夹字、也可能写成"点击任意位置继续"），
+# 所以用正则做包含匹配，不写死整句。
+CLICK_ANYWHERE_PATTERNS = [
+    re.compile(r'任意位置.*关闭'),
+    re.compile(r'任意位置.*继续'),
+    re.compile(r'点击任意位置'),
+]
 
 # 关闭 / 取消类按钮，按优先级排列。同屏出现多个时先试前面的。
 # 这些都是 assets/coco_annotations.json 里已标注的特征名。
@@ -109,6 +120,48 @@ class PageNavTask(BaseTask):
         if log:
             self.log_warning(f"{max_rounds} 轮后仍未回到主页面（main_adventure）")
         return False
+
+    # ------------------------------------------------------------------
+    # 「点击任意位置关闭」提示
+    # ------------------------------------------------------------------
+    def find_click_anywhere(self):
+        """找「点击任意位置关闭」这类提示，返回它的 Box；没有就返回 None。"""
+        try:
+            boxes = self.ocr(match=self.CLICK_ANYWHERE_PATTERNS)
+        except Exception as e:
+            self.log_debug(f"检测「任意位置关闭」失败: {e}")
+            return None
+        if not boxes:
+            return None
+        return boxes[0] if isinstance(boxes, list) else boxes
+
+    def dismiss_click_anywhere(self):
+        """检测到「点击任意位置关闭」就点掉，然后一路退到主页面。
+
+        这类提示一般出现在战斗结束 / 领奖之后。流程是：
+          1. 点一下把提示关掉（提示上写着"任意位置"，点提示文字本身最稳，
+             不会误触到别的按钮）；
+          2. 之后往往还会弹出带 X 的弹窗（popu_cancel 等），
+             用 back_to_main() 逐个点掉，直到回到主页面。
+
+        :return: True 表示确实遇到并处理了这种提示。
+                 调用方通常应当据此结束当前这一轮（因为已经被踢回主页面了）。
+        """
+        box = self.find_click_anywhere()
+        if box is None:
+            return False
+
+        self.log_info("检测到「点击任意位置关闭」，点掉它")
+        try:
+            self.click_box(box)
+        except Exception as e:
+            self.log_warning(f"点击「任意位置关闭」失败，改点屏幕中央: {e}")
+            self.click(int(self.width * 0.5), int(self.height * 0.5))
+        self.sleep(1.0)
+
+        # 之后可能还有带 X 的弹窗（含 popu_cancel），逐个点掉直到回到主页面
+        self.back_to_main(max_rounds=15, interval=0.8)
+        return True
 
     # ------------------------------------------------------------------
     # 内部小工具

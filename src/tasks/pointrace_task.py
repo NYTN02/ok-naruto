@@ -1,6 +1,9 @@
 from ok import BaseTask
 import re
 
+# 挑战没成功时额外重试的次数（1 表示最多打两次）
+CHALLENGE_RETRY = 1
+
 
 class PointRaceTask(BaseTask):
     def __init__(self, *args, **kwargs):
@@ -77,38 +80,31 @@ class PointRaceTask(BaseTask):
                 self.sleep(2.0)
                 continue
 
-            # 2.6 找挑战按钮
-            challenge = self.find_challenge_for(target['y'], target['box'])
-            if challenge is None:
-                exit_reason = f"未找到战力 {target['power']} 万对应的挑战按钮"
-                self.log_warning(exit_reason)
-                break
+            # 2.6 挑战（挑战没成功就重试一次）
+            challenged = False
+            for try_idx in range(CHALLENGE_RETRY + 1):
+                if try_idx:
+                    self.log_warning(f"挑战没成功，重试第 {try_idx} 次")
 
-            self.log_info(f"选择对手: 战力 {target['power']} 万，点击挑战 "
-                          f"({challenge[0]}, {challenge[1]})")
-            self.click(challenge[0], challenge[1])
-            self.sleep(1.5)
-
-            # 2.7 60 秒内每 2 秒轮询检测"当前积分"和"确定"
-            clicked = False
-            for attempt in range(30):
-                if self.click_ocr_text("当前积分", time_out=1.0):
-                    self.log_info(f"第 {attempt+1} 次轮询识别到'当前积分'")
-                    self.sleep(1.0)
-                    if not self.click_ocr_text("确定", time_out=5):
-                        self.log_warning("未找到'确定'按钮")
-                    clicked = True
+                # 找挑战按钮
+                challenge = self.find_challenge_for(target['y'], target['box'])
+                if challenge is None:
+                    exit_reason = f"未找到战力 {target['power']} 万对应的挑战按钮"
+                    self.log_warning(exit_reason)
                     break
 
-                if self.click_ocr_text("确定", time_out=1.0):
-                    self.log_info(f"第 {attempt+1} 次轮询识别到'确定'")
-                    clicked = True
+                self.log_info(f"选择对手: 战力 {target['power']} 万，点击挑战 "
+                              f"({challenge[0]}, {challenge[1]})")
+                self.click(challenge[0], challenge[1])
+                self.sleep(1.5)
+
+                # 2.7 轮询等待挑战结果
+                if self.wait_challenge_result():
+                    challenged = True
                     break
 
-                self.sleep(2.0)
-
-            if not clicked:
-                exit_reason = "60秒内未检测到'当前积分'或'确定'"
+            if not challenged:
+                exit_reason = f"挑战未成功（最多尝试 {CHALLENGE_RETRY + 1} 次）"
                 self.log_error(exit_reason)
                 break
 
@@ -124,6 +120,30 @@ class PointRaceTask(BaseTask):
             self.log_warning("未找到退出按钮")
 
         self.log_info("积分赛任务结束")
+
+    # ================= 挑战结果轮询 =================
+
+    def wait_challenge_result(self, max_polls=30, interval=2.0):
+        """挑战后轮询等待结果：识别到'当前积分'或'确定'就算成功。
+
+        默认 30 次 × 2 秒 ≈ 60 秒。
+        """
+        for attempt in range(max_polls):
+            if self.click_ocr_text("当前积分", time_out=1.0):
+                self.log_info(f"第 {attempt + 1} 次轮询识别到'当前积分'")
+                self.sleep(1.0)
+                if not self.click_ocr_text("确定", time_out=5):
+                    self.log_warning("未找到'确定'按钮")
+                return True
+
+            if self.click_ocr_text("确定", time_out=1.0):
+                self.log_info(f"第 {attempt + 1} 次轮询识别到'确定'")
+                return True
+
+            self.sleep(interval)
+
+        self.log_warning(f"{max_polls} 次轮询内未检测到'当前积分'或'确定'")
+        return False
 
     # ================= 挑战次数检测 =================
 

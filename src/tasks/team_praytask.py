@@ -1,5 +1,11 @@
 from ok import BaseTask
 
+# 点击 team_coinpray（祈福）时的尝试次数与间隔。
+# 这个按钮点下去之后界面会卡一下/有动画，一次不一定点得中，
+# 所以隔 2 秒重试，最多点 3 次。
+COINPRAY_ATTEMPTS = 3
+COINPRAY_INTERVAL = 2.0
+
 
 class TeamPrayTask(BaseTask):
     def __init__(self, *args, **kwargs):
@@ -31,9 +37,9 @@ class TeamPrayTask(BaseTask):
             return
         self.sleep(1.5)
 
-        # ========== 4. 点击 team_coinpray ==========
-        if not self.wait_click_feature('team_coinpray', threshold=0.8, time_out=5):
-            self.log_warning("未找到 team_coinpray，尝试退出")
+        # ========== 4. 点击 team_coinpray（最多 3 次，每次间隔 2 秒）==========
+        if not self.click_coinpray():
+            self.log_warning("3 次都没点到 team_coinpray，尝试退出")
             self.cleanup_exit()
             return
         self.sleep(1.2)
@@ -97,6 +103,32 @@ class TeamPrayTask(BaseTask):
         self.cleanup_exit()
 
         self.log_info("组织祈福任务结束")
+
+    # ================= 祈福按钮 =================
+
+    def click_coinpray(self):
+        """尝试点击 team_coinpray 最多 ``COINPRAY_ATTEMPTS`` 次，每次间隔 2 秒。
+
+        返回 True 表示至少点中了一次。
+        """
+        for attempt in range(1, COINPRAY_ATTEMPTS + 1):
+            box = None
+            try:
+                box = self.find_one('team_coinpray', threshold=0.8)
+            except Exception as e:
+                self.log_warning(f"第 {attempt} 次查找 team_coinpray 出错: {e}")
+
+            if box:
+                self.click_box(box)
+                self.log_info(f"第 {attempt}/{COINPRAY_ATTEMPTS} 次点击 team_coinpray "
+                              f"({box.x}, {box.y})")
+                return True
+
+            self.log_warning(f"第 {attempt}/{COINPRAY_ATTEMPTS} 次没找到 team_coinpray")
+            if attempt < COINPRAY_ATTEMPTS:
+                self.sleep(COINPRAY_INTERVAL)
+
+        return False
 
     # ================= OCR 工具 =================
 

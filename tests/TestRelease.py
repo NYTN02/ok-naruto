@@ -32,7 +32,18 @@ from src.tasks.combat_ui import (
     parse_layout,
 )
 from src.tasks.daily_task import DAILY_TASKS, DailyTask
-from src.tasks.page_nav import CANCEL_FEATURES, MAIN_PAGE_FEATURE
+from src.tasks.coinorgin_task import CoinOrginTask
+from src.tasks.mission_task import MAX_ACCEPT_RETRY, MissionTask
+from src.tasks.page_nav import (
+    CANCEL_FEATURES,
+    CLICK_ANYWHERE_PATTERNS,
+    MAIN_PAGE_FEATURE,
+    PageNavTask,
+)
+from src.tasks.pointrace_task import CHALLENGE_RETRY, PointRaceTask
+from src.tasks.qiandao_task import QianDaoTask
+from src.tasks.team_praytask import COINPRAY_ATTEMPTS, COINPRAY_INTERVAL
+from src.tasks.teamfight_task import TeamFightTask
 
 COCO_PATH = os.path.join('assets', 'coco_annotations.json')
 
@@ -322,6 +333,66 @@ class TestWorkflowReleaseBody(unittest.TestCase):
             'Out-File', code,
             '又在代码里用了 Out-File -Encoding utf8（PS 5.1 会写 BOM），请用 WriteAllText',
         )
+
+
+class TestDailyTaskHardening(unittest.TestCase):
+    """一键日常里各任务的「重试 / 兜底」行为。
+
+    这些是照着实战反馈加的：
+      * 任务集会所接取失败 -> 回主页重跑，重试 2 次后跳过
+      * 小队突袭 / 丰饶之间遇到「点击任意位置关闭」-> 点掉并退回主页面
+      * 积分赛挑战失败 -> 重试一次
+      * 组织祈福点 team_coinpray -> 隔 2 秒重试，最多 3 次
+    用例守的是常量和接口约定，避免以后被无声改掉。
+    """
+
+    def test_click_anywhere_patterns(self):
+        """关键词要能命中常见写法，又不能误命中普通按钮文字。"""
+        for text in ('点击任意位置关闭', '任意位置关闭', '点击任意位置继续', '请点击任意位置关闭'):
+            self.assertTrue(
+                any(p.search(text) for p in CLICK_ANYWHERE_PATTERNS),
+                f'「{text}」应该被识别为「任意位置关闭」提示',
+            )
+        for text in ('点击任意对手', '任意门', '关闭', '确定', '挑战', '确定'):
+            self.assertFalse(
+                any(p.search(text) for p in CLICK_ANYWHERE_PATTERNS),
+                f'「{text}」不该被当成「任意位置关闭」提示（会误点）',
+            )
+
+    def test_page_nav_exposes_click_anywhere_helpers(self):
+        for name in ('find_click_anywhere', 'dismiss_click_anywhere'):
+            self.assertTrue(callable(getattr(PageNavTask, name, None)),
+                            f'PageNavTask 缺少 {name}')
+
+    def test_tasks_that_need_page_nav_inherit_it(self):
+        """要退回主页面的任务必须继承 PageNavTask（或它的子类）。"""
+        for cls in (MissionTask, TeamFightTask, CoinOrginTask, QianDaoTask):
+            self.assertTrue(
+                issubclass(cls, PageNavTask),
+                f'{cls.__name__} 需要 back_to_main / dismiss_click_anywhere，'
+                f'必须继承 PageNavTask',
+            )
+
+    def test_mission_accept_retry(self):
+        self.assertEqual(2, MAX_ACCEPT_RETRY, '任务集会所接取失败应重试 2 次')
+        for name in ('run_once', 'accept_one_mission'):
+            self.assertTrue(callable(getattr(MissionTask, name, None)), f'缺少 {name}')
+
+    def test_pointrace_challenge_retry(self):
+        self.assertEqual(1, CHALLENGE_RETRY, '积分赛挑战失败应额外重试 1 次')
+        self.assertTrue(callable(getattr(PointRaceTask, 'wait_challenge_result', None)))
+
+    def test_coinpray_retry(self):
+        self.assertEqual(3, COINPRAY_ATTEMPTS, 'team_coinpray 应最多点 3 次')
+        self.assertEqual(2.0, COINPRAY_INTERVAL, 'team_coinpray 重试间隔应为 2 秒')
+
+    def test_coinorgin_and_teamfight_call_click_anywhere(self):
+        """两个任务都要真的调用 dismiss_click_anywhere，不能只是声明。"""
+        for rel in ('src/tasks/coinorgin_task.py', 'src/tasks/teamfight_task.py'):
+            with open(rel, encoding='utf-8') as f:
+                src = f.read()
+            self.assertIn('dismiss_click_anywhere()', src,
+                          f'{rel} 没有调用 dismiss_click_anywhere()')
 
 
 if __name__ == '__main__':

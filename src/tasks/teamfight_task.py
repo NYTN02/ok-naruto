@@ -1,4 +1,4 @@
-from ok import BaseTask
+from src.tasks.page_nav import PageNavTask
 import re
 import time
 
@@ -12,7 +12,7 @@ INVITE_SWIPE_DURATION = 0.4
 INVITE_MAX_SWIPES = 5
 
 
-class TeamFightTask(BaseTask):
+class TeamFightTask(PageNavTask):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.name = "小队突袭"
@@ -64,6 +64,12 @@ class TeamFightTask(BaseTask):
                 if self.safe_click_feature('popu_cancel', threshold=0.8, time_out=3):
                     self.log_info("已点击 popu_cancel")
                     self.sleep(1.5)
+
+                # 领奖后常会弹「点击任意位置关闭」；处理完会被送回主页面，
+                # 这一轮剩下的步骤（邀请/出发）就没意义了，直接进下一轮
+                if self.dismiss_click_anywhere():
+                    self.log_warning("处理了「任意位置关闭」，本轮已回到主页面，进入下一轮")
+                    continue
 
             # 5. OCR 找"邀请"，找不到就滑动查找，点最上面的
             if not self.click_top_invite():
@@ -170,6 +176,12 @@ class TeamFightTask(BaseTask):
     def wait_for_main_teamfight(self, timeout=120):
         start = time.time()
         while time.time() - start < timeout:
+            # 战斗/领奖结束后常会弹「点击任意位置关闭」，先把它和后续弹窗清掉，
+            # 否则会被它挡着一直找不到入口
+            if self.dismiss_click_anywhere():
+                self.log_info("已处理「任意位置关闭」提示，继续等待回到主界面")
+                continue
+
             box = self.find_one('main_teamfight', threshold=0.8)
             if box:
                 self.log_info(f"检测到 main_teamfight，用时 {int(time.time() - start)} 秒")

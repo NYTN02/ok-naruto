@@ -1,52 +1,93 @@
-from ok import BaseTask
+from src.tasks.page_nav import PageNavTask
+
+# 点了「接取」但没走到「出发」时，判定这一次接取失败；
+# 整轮下来一次都没接上，就点 popu_cancel 退回主页面重跑，
+# 最多重试这么多次，再不行就跳过。
+MAX_ACCEPT_RETRY = 2
+
+# 一轮里最多尝试接取几个任务
+MAX_ACCEPT_LOOP = 15
+
+# 接取过程的三种结果
+NO_MORE = 'no_more'      # 画面上已经没有「接取」了，正常收尾
+FAILED = 'failed'        # 点了「接取」却没走到「出发」
+ACCEPTED = 'accepted'    # 成功接取了一个
 
 
-class MissionTask(BaseTask):
+class MissionTask(PageNavTask):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.name = "任务集会所"
         self.description = "自动领取奖励和接取任务"  # 可选
+        self._last_round_had_attempt = False
 
     def run(self):
         self.log_info("开始任务集会所...")
 
+        for attempt in range(MAX_ACCEPT_RETRY + 1):
+            if attempt:
+                self.log_warning(f"===== 重试第 {attempt} 次任务集会所 =====")
+
+            status, accepted = self.run_once()
+
+            if status == 'no_entry':
+                self.log_error("未找到任务集会所入口，任务终止")
+                return
+
+            if status != 'failed':
+                # 'ok'（成功接取过）或 'empty'（本来就没有可接取的任务）
+                if status == 'empty':
+                    self.log_info("没有可接取的任务（可能今天已经接满了）")
+                else:
+                    self.log_info(f"本次成功接取 {accepted} 个任务")
+                self.log_info("任务集会所任务结束")
+                return
+
+            # 一个都没接上：点 popu_cancel 退回主页面后重跑
+            if attempt < MAX_ACCEPT_RETRY:
+                self.log_warning("没有成功接取任务，点 popu_cancel 退回主页面后重试"
+                                 f"（{attempt + 1}/{MAX_ACCEPT_RETRY}）")
+                self.back_to_main(max_rounds=15, interval=0.8)
+                self.sleep(1.0)
+            else:
+                self.log_warning(f"重试 {MAX_ACCEPT_RETRY} 次仍未成功接取任务，本次跳过")
+                self.back_to_main(max_rounds=15, interval=0.8, log=False)
+
+    def run_once(self):
+        """跑一轮任务集会所。
+
+        :return: ``(status, accepted)``
+                 status: 'no_entry'  没找到入口
+                         'empty'     本来就没有可接取的任务（正常，不算失败）
+                         'failed'    点了「接取」但没走到「出发」
+                         'ok'        至少成功接取了一个
+        """
+        self._last_round_had_attempt = False
+
         # 1. 滑动查找任务集会所入口并点击
         box = self.swipe_find('main_mission', max_swipes=4, click=True)
         if not box:
-            self.log_error("未找到任务集会所入口，任务终止")
-            return
+            return 'no_entry', 0
         self.sleep(1.2)  # 等待界面加载
 
         # 2. 先领所有"可领取"
         self.collect_all_rewards()
 
         # 3. 循环接取任务
-        loop_count = 0
-        max_loop = 15
-        while loop_count < max_loop:
-            loop_count += 1
+        accepted = 0
+        for loop_count in range(1, MAX_ACCEPT_LOOP + 1):
             self.log_info(f"--- 第 {loop_count} 轮接取 ---")
+            result = self.accept_one_mission()
 
-            # 检测有没有"接取"
-            if not self.click_ocr_text("接取", time_out=1.0):
+            if result == NO_MORE:
                 self.log_info("没有更多'接取'，结束循环")
                 break
-            self.sleep(1.2)  # 等待界面切换
 
-            # 点击固定位置 rel(0.686, 0.210)
-            self.click_relative(0.686, 0.210)
-            self.sleep(1.2)
-
-            # OCR 找"推荐小队"，有就点
-            if self.click_ocr_text("推荐小队", time_out=1.0):
-                self.sleep(0.8)
-
-            # 点击"出发"
-            if not self.wait_click_feature('mission_go', threshold=0.8, time_out=4):
-                self.log_error("未找到'出发'按钮，跳出循环")
+            if result == FAILED:
+                self.log_warning("这一次接取没有成功（没走到'出发'）")
                 break
-            self.sleep(1.8)  # 等待出发与返回
 
+            accepted += 1
             # 回到集会所后，可能又出现新的"可领取"
             self.collect_all_rewards()
 
@@ -57,7 +98,46 @@ class MissionTask(BaseTask):
         else:
             self.log_warning("未找到退出按钮")
 
-        self.log_info("任务集会所任务结束")
+        if accepted:
+            return 'ok', accepted
+        # 一次没接上：区分"本来就没得接"和"接了但失败"
+        return ('failed' if self._last_round_had_attempt else 'empty'), 0
+
+    def accept_one_mission(self):
+        """尝试接取一个任务，返回 NO_MORE / FAILED / ACCEPTED。
+
+        判定"没有成功接取"的依据：点了「接取」以及后面那个固定坐标之后，
+        界面本该切到选小队 / 确认页（那里有「出发」按钮）。如果等不到
+        ``mission_go``，就说明这次接取没成功 —— 多半是被弹窗挡住了，
+        所以调用方要先点 popu_cancel 退回主页面再重跑。
+        """
+        # 检测有没有"接取"
+        if not self.click_ocr_text("接取", time_out=1.0):
+            return NO_MORE
+
+        self._last_round_had_attempt = True
+        self.sleep(1.2)  # 等待界面切换
+
+        # 点击固定位置 rel(0.686, 0.210)
+        self.click_relative(0.686, 0.210)
+        self.sleep(1.2)
+
+        # OCR 找"推荐小队"，有就点
+        if self.click_ocr_text("推荐小队", time_out=1.0):
+            self.sleep(0.8)
+
+        # 点击"出发"
+        if not self.wait_click_feature('mission_go', threshold=0.8, time_out=4):
+            self.log_warning("没等到'出发'按钮，判定这次接取失败")
+            try:
+                if self.find_one('popu_cancel', threshold=0.8):
+                    self.log_warning("画面上有 popu_cancel，应该是被弹窗挡住了")
+            except Exception:
+                pass
+            return FAILED
+
+        self.sleep(1.8)  # 等待出发与返回
+        return ACCEPTED
 
     # ---------------- 通用工具方法 ----------------
 

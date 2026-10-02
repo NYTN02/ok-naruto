@@ -108,6 +108,12 @@ class CoinOrginTask(CombatTask):
         for i in range(max_loops):
             # 主判据：结算界面 OCR（"经验"等）
             if i >= grace_loops and i % OCR_CHECK_EVERY == 0:
+                # 战斗途中可能弹「点击任意位置关闭」（被踢出 / 断线等）。
+                # 处理完通常已经被送回主页面，本局就到此为止。
+                if self.dismiss_click_anywhere():
+                    self.log_warning("战斗中出现「任意位置关闭」，已退回主页面，本局结束")
+                    return True
+
                 if self.detect_ocr_text_any(BATTLE_END_PATTERNS):
                     self.log_info(f"第 {i + 1} 轮 OCR 检测到结算界面（经验），战斗结束")
                     return True
@@ -159,6 +165,9 @@ class CoinOrginTask(CombatTask):
         self.log_info("开始持续点击屏幕中央，跳过结算直到回到主界面...")
         self.sleep(1.0)
         for i in range(max_clicks):
+            # 结算 / 领奖时可能弹「点击任意位置关闭」，先把它和后续弹窗清掉
+            if self.dismiss_click_anywhere():
+                self.log_info("已处理「任意位置关闭」提示")
             self.click_relative(0.5, 0.5)
             self.sleep(interval)
             if self.find_one('main_adventure', threshold=0.8):
