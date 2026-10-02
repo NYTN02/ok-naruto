@@ -48,11 +48,28 @@ from src.tasks.page_nav import PageNavTask
 GUIDE_ENTRY = 'main_guide'      # 主页面上的「指南」入口
 GUIDE_CANCEL = 'guide_cancel'   # 指南里的关闭按钮
 
+# 列表两端各有一个"到头了"的标志物，用来判断还能不能往那个方向滑：
+#   guide_listtop    可见 => 已经在列表最顶端，再往顶部滑是白费（手指往下拖）
+#   guide_listbottom 可见 => 已经在列表最底部，再往底部滑是白费（手指往上拖）
+GUIDE_LISTTOP = 'guide_listtop'
+GUIDE_LISTBOTTOM = 'guide_listbottom'
+
 # 在指南列表上滑动的锚点（相对坐标）。列表固定在屏幕左侧那一列，
 # 用固定锚点比全屏乱滑稳。
 GUIDE_SCROLL_X = 0.090
 GUIDE_SCROLL_Y = 0.520
-GUIDE_SCROLL_DISTANCE = 0.35    # 每次拖动的距离（相对屏幕高度）
+
+# 每次拖动的距离（相对屏幕高度）。
+#
+# ⚠️ 这个值必须保证**起点和终点都落在列表范围内**，否则手指会滑出列表区域、
+#    手势不生效（实测过：0.35 时终点分别到 0.170 / 0.870，而列表实际范围是
+#    0.162 ~ 0.828 —— 两端都出界了，往下拖那次基本没反应）。
+#    列表范围是按标注量出来的：
+#        guide_listtop     rel y = 0.162
+#        guide_listbottom  rel y = 0.828
+#    锚点在 0.520，理论上限是 min(0.520-0.162, 0.828-0.520) = 0.308，
+#    再留点余量取 0.24 => 终点 0.280 / 0.760，稳稳在列表内。
+GUIDE_SCROLL_DISTANCE = 0.24
 GUIDE_SCROLL_SETTLE = 0.35      # 拖到终点后再按住多久才松开
 GUIDE_SCROLL_AFTER = 0.6        # 松手后等列表停稳
 GUIDE_SCROLL_MAX = 10           # 单向最多滑几次
@@ -133,38 +150,82 @@ class GuideNavTask(PageNavTask):
     # ------------------------------------------------------------------
     # 指南列表
     # ------------------------------------------------------------------
-    def scroll_guide(self, down=True):
-        """在指南列表上滑一次（锚点 rel 0.090, 0.520）。"""
+    def at_guide_top(self):
+        """是否已经在指南列表最顶端（看到 guide_listtop）。"""
+        self._warn_if_bounds_features_missing()
+        return self._safe_find_one(GUIDE_LISTTOP) is not None
+
+    def at_guide_bottom(self):
+        """是否已经在指南列表最底部（看到 guide_listbottom）。"""
+        self._warn_if_bounds_features_missing()
+        return self._safe_find_one(GUIDE_LISTBOTTOM) is not None
+
+    def _warn_if_bounds_features_missing(self):
+        """两个边界模板缺了就告警一次 —— 缺了不会报错，但边界判断会失效。"""
+        if getattr(self, '_guide_bounds_warned', False):
+            return
+        self._guide_bounds_warned = True
+        for name in (GUIDE_LISTTOP, GUIDE_LISTBOTTOM):
+            if not self._feature_exists(name):
+                self.log_warning(f"模板 {name} 不存在，指南列表的边界判断会失效，"
+                                 f"滑动会一直做到次数上限")
+
+    def scroll_guide(self, to_bottom=True):
+        """在指南列表上滑一次（锚点 rel 0.090, 0.520）。
+
+        ``to_bottom=True``  -> 想看列表**更下面**的内容：手指**往上**拖
+        ``to_bottom=False`` -> 想看列表**更上面**的内容：手指**往下**拖
+
+        手指方向和内容方向是反的，很容易搞混，所以参数按"想看哪边的内容"命名：
+        手指往下拖时内容跟着往下走，看到的是更上面的条目
+        （用户描述的「按住往下滑动（滚动向上的意思）」就是这个方向）。
+        """
         x = int(self.width * GUIDE_SCROLL_X)
         y_from = int(self.height * GUIDE_SCROLL_Y)
-        delta = GUIDE_SCROLL_DISTANCE * (1 if down else -1)
-        y_to = int(self.height * (GUIDE_SCROLL_Y - delta))
+        # 想看更下面 => 手指往上 => 终点 y 更小
+        delta = -GUIDE_SCROLL_DISTANCE if to_bottom else GUIDE_SCROLL_DISTANCE
+        y_to = int(self.height * (GUIDE_SCROLL_Y + delta))
         self.gesture(x, y_from, x, y_to)
 
     def find_in_guide(self, feature, max_swipes=GUIDE_SCROLL_MAX):
         """在指南列表里上下滑动找 feature，找到返回它的 Box，否则 None。
 
         先往下找（列表通常从上面开始），再往回往上找。
+        每一轮滑之前先看指南两端有没有到头：
+
+          * 看到 guide_listbottom => 已经在最底部，往下的方向再滑也没用，直接收手
+          * 看到 guide_listtop    => 已经在最顶端，往上的方向再滑也没用，直接收手
+
+        没有这个判断的话，到了边界还会一直空滑到次数上限：既浪费时间，
+        又会因为反复拖动让列表来回弹、更难定位。
         """
         box = self._safe_find_one(feature)
         if box is not None:
             self.log_info(f"[指南] 当前画面已看到 {feature}")
             return box
 
+        # ---- 往下找：手指往上拖 ----
         for i in range(1, max_swipes + 1):
-            self.log_info(f"[指南] 向下滑 {i}/{max_swipes} 次找 {feature}")
-            self.scroll_guide(down=True)
+            if self.at_guide_bottom():
+                self.log_info(f"[指南] 已经到底（看到 {GUIDE_LISTBOTTOM}），停止往下找")
+                break
+            self.log_info(f"[指南] 往下找 {i}/{max_swipes}：{feature}")
+            self.scroll_guide(to_bottom=True)
             box = self._safe_find_one(feature)
             if box is not None:
-                self.log_info(f"[指南] 向下滑 {i} 次后找到 {feature}")
+                self.log_info(f"[指南] 往下找 {i} 次后找到 {feature}")
                 return box
 
+        # ---- 往回往上找：手指往下拖 ----
         for i in range(1, max_swipes * 2 + 1):
-            self.log_info(f"[指南] 向上滑 {i}/{max_swipes * 2} 次找 {feature}")
-            self.scroll_guide(down=False)
+            if self.at_guide_top():
+                self.log_info(f"[指南] 已经到顶（看到 {GUIDE_LISTTOP}），停止往上找")
+                break
+            self.log_info(f"[指南] 往上找 {i}/{max_swipes * 2}：{feature}")
+            self.scroll_guide(to_bottom=False)
             box = self._safe_find_one(feature)
             if box is not None:
-                self.log_info(f"[指南] 向上滑 {i} 次后找到 {feature}")
+                self.log_info(f"[指南] 往上找 {i} 次后找到 {feature}")
                 return box
 
         return None

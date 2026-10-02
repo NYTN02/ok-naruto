@@ -33,7 +33,13 @@ from src.tasks.combat_ui import (
 )
 from src.tasks.daily_task import DAILY_TASKS, DailyTask
 from src.tasks.coinorgin_task import CoinOrginTask
-from src.tasks.guide_nav import GuideNavTask
+from src.tasks.guide_nav import (
+    GUIDE_LISTBOTTOM,
+    GUIDE_LISTTOP,
+    GUIDE_SCROLL_DISTANCE,
+    GUIDE_SCROLL_Y,
+    GuideNavTask,
+)
 from src.tasks.mission_task import MAX_ACCEPT_RETRY, MissionTask
 from src.tasks.page_nav import (
     CANCEL_FEATURES,
@@ -73,6 +79,8 @@ REQUIRED_FEATURES = [
     'guide_pointrace', 'guide_pointracego',
     'guide_teamfight', 'guide_teamfightgo',
     'guide_coinorign', 'guide_coinorigngo',
+    # 指南列表的两端标志物：判断还能不能往某个方向滑
+    'guide_listtop', 'guide_listbottom',
     # 组织祈福的新入口（主页面 main_reward -> 每日任务 -> reward_teampray）
     'main_reward', 'reward_teampray',
 ]
@@ -518,12 +526,19 @@ class TestGuideEntry(unittest.TestCase):
     }
 
     def test_guide_constants(self):
-        from src.tasks.guide_nav import GUIDE_CANCEL, GUIDE_ENTRY, GUIDE_SCROLL_X, GUIDE_SCROLL_Y
+        from src.tasks.guide_nav import (
+            GUIDE_CANCEL,
+            GUIDE_ENTRY,
+            GUIDE_SCROLL_DISTANCE,
+            GUIDE_SCROLL_X,
+            GUIDE_SCROLL_Y,
+        )
         self.assertEqual('main_guide', GUIDE_ENTRY)
         self.assertEqual('guide_cancel', GUIDE_CANCEL)
         # 滑动锚点是需求里指定的位置
         self.assertAlmostEqual(0.090, GUIDE_SCROLL_X, places=3)
         self.assertAlmostEqual(0.520, GUIDE_SCROLL_Y, places=3)
+        self.assertGreater(GUIDE_SCROLL_DISTANCE, 0)
 
     def test_all_guide_tasks_inherit_and_declare_matching_templates(self):
         import importlib
@@ -561,6 +576,61 @@ class TestGuideEntry(unittest.TestCase):
         self.assertIn('click_below(', src, '没有用 click_below 点条目正下方的按钮')
         self.assertNotIn("swipe_find('main_team'", src,
                          '还在用旧的 main_team 入口')
+
+    def test_guide_scroll_stays_inside_list(self):
+        """滑动起止点必须落在列表范围内。
+
+        这是实测踩过的坑：距离 0.35 时两个方向的终点分别到 0.170 / 0.870，
+        而列表实际范围（按 guide_listtop / guide_listbottom 标注量出来）是
+        0.162 ~ 0.828 —— 两端都滑出列表区域，手指按在列表外面拖动，
+        表现就是「按住往下滑没办法正常滚动」。
+
+        这里直接用标注里的真实位置算，距离改了也会被拦住。
+        """
+        coco = json.load(open(COCO_PATH, encoding='utf-8'))
+        cats = {c['id']: c['name'] for c in coco['categories']}
+        imgs = {i['id']: i for i in coco['images']}
+        centers = {}
+        for a in coco['annotations']:
+            name = cats[a['category_id']]
+            if name in ('guide_listtop', 'guide_listbottom'):
+                img = imgs[a['image_id']]
+                _, y, _, h = a['bbox']
+                centers[name] = (y + h / 2) / img['height']
+
+        self.assertIn('guide_listtop', centers, '缺少 guide_listtop 标注，无法判断列表范围')
+        self.assertIn('guide_listbottom', centers, '缺少 guide_listbottom 标注')
+        top = centers['guide_listtop']
+        bottom = centers['guide_listbottom']
+        self.assertLess(top, bottom, 'guide_listtop 应该在 guide_listbottom 上面')
+
+        anchor = GUIDE_SCROLL_Y
+        dist = GUIDE_SCROLL_DISTANCE
+        self.assertGreater(anchor, top, '滑动锚点落在列表上边缘之外')
+        self.assertLess(anchor, bottom, '滑动锚点落在列表下边缘之外')
+        self.assertGreaterEqual(anchor - dist, top,
+                                f'手指往上拖的终点 {anchor - dist:.3f} 超出列表上边缘 {top:.3f}')
+        self.assertLessEqual(anchor + dist, bottom,
+                             f'手指往下拖的终点 {anchor + dist:.3f} 超出列表下边缘 {bottom:.3f}')
+        margin = min(anchor - dist - top, bottom - (anchor + dist))
+        self.assertGreater(margin, 0.02,
+                           f'终点离列表边缘只剩 {margin:.3f}，太贴边了，留点余量')
+
+    def test_guide_stops_at_list_bounds(self):
+        """到列表两端就不要再白滑了：listtop 停"往上"，listbottom 停"往下"。"""
+        from src.tasks.guide_nav import GUIDE_LISTBOTTOM, GUIDE_LISTTOP
+        self.assertEqual('guide_listtop', GUIDE_LISTTOP)
+        self.assertEqual('guide_listbottom', GUIDE_LISTBOTTOM)
+        with open('src/tasks/guide_nav.py', encoding='utf-8') as f:
+            src = f.read()
+        self.assertIn('def at_guide_top', src)
+        self.assertIn('def at_guide_bottom', src)
+        # find_in_guide 的两个方向都要有边界判断
+        find_body = src.split('def find_in_guide')[1].split('def exit_guide')[0]
+        self.assertIn('at_guide_bottom()', find_body,
+                      '往下找之前没有检查是否已到最底部')
+        self.assertIn('at_guide_top()', find_body,
+                      '往上找之前没有检查是否已到最顶端')
 
     def test_combat_click_verify_covers_all_buttons(self):
         """战斗点击验证：间隔 6 秒，且包含通灵/密卷。"""

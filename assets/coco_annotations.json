@@ -209,6 +209,18 @@
             "file_name": "images/4.png",
             "width": 1600,
             "height": 900
+        },
+        {
+            "id": 39,
+            "file_name": "images/1.png",
+            "width": 1600,
+            "height": 900
+        },
+        {
+            "id": 40,
+            "file_name": "images/0.png",
+            "width": 1600,
+            "height": 900
         }
     ],
     "annotations": [
@@ -1342,6 +1354,32 @@
             ],
             "area": 7104,
             "iscrowd": 0
+        },
+        {
+            "id": 88,
+            "image_id": 39,
+            "category_id": 87,
+            "bbox": [
+                203,
+                135,
+                47,
+                21
+            ],
+            "area": 987,
+            "iscrowd": 0
+        },
+        {
+            "id": 89,
+            "image_id": 40,
+            "category_id": 89,
+            "bbox": [
+                138,
+                734,
+                108,
+                23
+            ],
+            "area": 2484,
+            "iscrowd": 0
         }
     ],
     "categories": [
@@ -1776,8 +1814,18 @@
             "supercategory": ""
         },
         {
+            "id": 87,
+            "name": "guide_listtop",
+            "supercategory": ""
+        },
+        {
             "id": 88,
             "name": "guide_cancel",
+            "supercategory": ""
+        },
+        {
+            "id": 89,
+            "name": "guide_listbottom",
             "supercategory": ""
         }
     ]
