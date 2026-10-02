@@ -51,11 +51,19 @@ from src.tasks.page_nav import PageNavTask
 GUIDE_ENTRY = 'main_guide'      # 主页面上的「指南」入口
 GUIDE_CANCEL = 'guide_cancel'   # 指南里的关闭按钮
 
-# 列表两端各有一个"到头了"的标志物，用来判断还能不能往那个方向滑：
-#   guide_listtop    可见 => 已经在列表最顶端，再往顶部滑是白费（手指往下拖）
-#   guide_listbottom 可见 => 已经在列表最底部，再往底部滑是白费（手指往上拖）
+# 列表两端怎么判定：**用 OCR 认两端的条目文字**（用户指定）。
+#   OCR 到「天赋」     => 已经在列表最顶端，不能再往顶部滑
+#   OCR 到「忍具锻造」 => 已经在列表最底部，不能再往底部滑
+#
+# 为什么不用 guide_listtop / guide_listbottom 那两个模板：那两个标记很小，
+# 滑过头就露不全、匹配不到，会出现"已经到头却还以为能继续滑"的假象。
+# OCR 认条目文字稳得多。两个模板作为兜底保留（两条路都有更稳）。
 GUIDE_LISTTOP = 'guide_listtop'
 GUIDE_LISTBOTTOM = 'guide_listbottom'
+GUIDE_TOP_TEXT = '天赋'          # 列表最上面那一项
+GUIDE_BOTTOM_TEXT = '忍具锻造'   # 列表最下面那一项
+GUIDE_TOP_PATTERN = re.compile(re.escape(GUIDE_TOP_TEXT))
+GUIDE_BOTTOM_PATTERN = re.compile(re.escape(GUIDE_BOTTOM_TEXT))
 
 # 在指南列表上滑动的手势（相对坐标），由用户实测指定。
 #
@@ -182,13 +190,33 @@ class GuideNavTask(PageNavTask):
     # ------------------------------------------------------------------
     # 指南列表
     # ------------------------------------------------------------------
+    def _ocr_has(self, pattern):
+        """OCR 是否能在当前画面认出 pattern。"""
+        try:
+            return bool(self.ocr(match=[pattern]))
+        except Exception as e:
+            self.log_debug(f"OCR「{pattern.pattern}」出错: {e}")
+            return False
+
     def at_guide_top(self):
-        """是否已经在指南列表最顶端（看到 guide_listtop）。"""
+        """是否已经在指南列表最顶端。
+
+        判据：OCR 认出列表最上面那一项「天赋」。认不到再用 guide_listtop 模板兜底。
+        """
+        if self._ocr_has(GUIDE_TOP_PATTERN):
+            self.log_info(f"[指南] OCR 认出「{GUIDE_TOP_TEXT}」，判定已在列表顶部")
+            return True
         self._warn_if_bounds_features_missing()
         return self._safe_find_one(GUIDE_LISTTOP) is not None
 
     def at_guide_bottom(self):
-        """是否已经在指南列表最底部（看到 guide_listbottom）。"""
+        """是否已经在指南列表最底部。
+
+        判据：OCR 认出列表最下面那一项「忍具锻造」。认不到再用 guide_listbottom 兜底。
+        """
+        if self._ocr_has(GUIDE_BOTTOM_PATTERN):
+            self.log_info(f"[指南] OCR 认出「{GUIDE_BOTTOM_TEXT}」，判定已在列表底部")
+            return True
         self._warn_if_bounds_features_missing()
         return self._safe_find_one(GUIDE_LISTBOTTOM) is not None
 

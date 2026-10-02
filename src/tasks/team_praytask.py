@@ -1,3 +1,5 @@
+import re
+
 from src.tasks.guide_nav import DAILY_TASK_PATTERN, GuideNavTask
 
 # 点击 team_coinpray（祈福）时的尝试次数与间隔。
@@ -14,7 +16,9 @@ COINPRAY_INTERVAL = 2.0
 # 所以改走「每日任务」这条固定的入口。
 # ---------------------------------------------------------------------------
 REWARD_ENTRY = 'main_reward'        # 主页面上的每日任务/奖励入口
-TEAMPRAY_ITEM = 'reward_teampray'   # 每日任务列表里的组织祈福条目
+TEAMPRAY_ITEM = 'reward_teampray'   # 每日任务列表里的组织祈福条目（模板兜底）
+TEAMPRAY_TEXT = '组织祈福'           # 条目的文字，OCR 识别用
+TEAMPRAY_PATTERN = re.compile(re.escape(TEAMPRAY_TEXT))
 GO_TEXT = '立刻前往'                 # 条目正下方的按钮文字
 
 # 在每日任务列表上「按住屏幕中央 -> 左右拖动 -> 松开」
@@ -184,16 +188,16 @@ class TeamPrayTask(GuideNavTask):
             return False
         self.sleep(REWARD_OPEN_WAIT)
 
-        # 3. 屏幕中央左右滑动找 reward_teampray
+        # 3. 滑动 + OCR 找「组织祈福」条目
         box = self.find_reward_item(TEAMPRAY_ITEM)
         if box is None:
-            self.log_warning(f"每日任务里左右滑遍都没找到 {TEAMPRAY_ITEM}")
+            self.log_warning(f"每日任务里滑遍都没找到「{TEAMPRAY_TEXT}」")
             self.exit_reward()
             return False
 
         # 4. 点它正下方的「立刻前往」
         if not self.click_below(box, GO_TEXT, time_out=REWARD_GO_TIMEOUT):
-            self.log_warning(f"没找到 {TEAMPRAY_ITEM} 正下方的「{GO_TEXT}」")
+            self.log_warning(f"没找到「{TEAMPRAY_TEXT}」正下方的「{GO_TEXT}」")
             self.exit_reward()
             return False
         self.sleep(REWARD_OPEN_WAIT)
@@ -204,30 +208,50 @@ class TeamPrayTask(GuideNavTask):
     def find_reward_item(self, feature, max_swipes=REWARD_SCROLL_MAX):
         """在每日任务列表里左右滑动找条目，返回 Box 或 None。
 
+        **优先 OCR 认「组织祈福」这几个字**（列表条目本身就是文字），
+        认不到再用 reward_teampray 模板兜底。
+
         先往左拖（看右边的内容），再往右拖（看回左边）。
         """
-        box = self._safe_find_one(feature)
+        box = self.find_teampray_on_screen()
         if box is not None:
-            self.log_info(f"[每日任务] 当前画面已看到 {feature}")
+            self.log_info(f"[每日任务] 当前画面已看到「{TEAMPRAY_TEXT}」")
             return box
 
         for i in range(1, max_swipes + 1):
-            self.log_info(f"[每日任务] 向左滑 {i}/{max_swipes} 次找 {feature}")
+            self.log_info(f"[每日任务] 向左滑 {i}/{max_swipes} 次找「{TEAMPRAY_TEXT}」")
             self.scroll_reward(direction=1)
-            box = self._safe_find_one(feature)
+            box = self.find_teampray_on_screen()
             if box is not None:
-                self.log_info(f"[每日任务] 向左滑 {i} 次后找到 {feature}")
+                self.log_info(f"[每日任务] 向左滑 {i} 次后找到「{TEAMPRAY_TEXT}」")
                 return box
 
         for i in range(1, max_swipes * 2 + 1):
-            self.log_info(f"[每日任务] 向右滑 {i}/{max_swipes * 2} 次找 {feature}")
+            self.log_info(f"[每日任务] 向右滑 {i}/{max_swipes * 2} 次找「{TEAMPRAY_TEXT}」")
             self.scroll_reward(direction=-1)
-            box = self._safe_find_one(feature)
+            box = self.find_teampray_on_screen()
             if box is not None:
-                self.log_info(f"[每日任务] 向右滑 {i} 次后找到 {feature}")
+                self.log_info(f"[每日任务] 向右滑 {i} 次后找到「{TEAMPRAY_TEXT}」")
                 return box
 
         return None
+
+    def find_teampray_on_screen(self):
+        """当前画面找「组织祈福」：先 OCR 文字，再退回 reward_teampray 模板。"""
+        try:
+            boxes = self.ocr(match=[TEAMPRAY_PATTERN])
+        except Exception as e:
+            self.log_debug(f"OCR 找「{TEAMPRAY_TEXT}」出错: {e}")
+            boxes = None
+        if boxes:
+            box = boxes[0] if isinstance(boxes, list) else boxes
+            if all(hasattr(box, a) for a in ('x', 'y', 'width', 'height')):
+                self.log_info(f"[每日任务] OCR 认到「{TEAMPRAY_TEXT}」({box.x}, {box.y})")
+                return box
+        box = self._safe_find_one(TEAMPRAY_ITEM)
+        if box is not None:
+            self.log_info(f"[每日任务] OCR 没认到，改用模板 {TEAMPRAY_ITEM} 找到条目")
+        return box
 
     def scroll_reward(self, direction=1):
         """在每日任务列表上「按住屏幕中央 -> 左右拖动 -> 松开」。

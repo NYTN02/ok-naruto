@@ -574,19 +574,49 @@ class TestGuideEntry(unittest.TestCase):
             self.assertNotIn(f"swipe_find('main_", src,
                              f'{mod_name} 还在用 swipe_find 找 main_* 入口，应改走指南')
 
-    def test_teampray_uses_reward_entry(self):
-        """组织祈福改为 main_reward -> 每日任务 -> reward_teampray -> 立刻前往。"""
+    def test_teampray_uses_ocr_entry(self):
+        """组织祈福入口：OCR 找「组织祈福」，点它正下方的「立刻前往」。
+
+        原来是找 reward_teampray 模板再点它下方的按钮，改成 OCR 认文字
+        （列表条目本身就是文字，比模板稳）；模板保留作兜底。
+        """
         import src.tasks.team_praytask as tp
         self.assertEqual('main_reward', tp.REWARD_ENTRY)
-        self.assertEqual('reward_teampray', tp.TEAMPRAY_ITEM)
+        self.assertEqual('组织祈福', tp.TEAMPRAY_TEXT)
         self.assertEqual('立刻前往', tp.GO_TEXT)
+        self.assertEqual('reward_teampray', tp.TEAMPRAY_ITEM, '模板应保留作兜底')
         self.assertTrue(issubclass(tp.TeamPrayTask, GuideNavTask))
         with open('src/tasks/team_praytask.py', encoding='utf-8') as f:
             src = f.read()
         self.assertIn('enter_teampray', src)
         self.assertIn('click_below(', src, '没有用 click_below 点条目正下方的按钮')
-        self.assertNotIn("swipe_find('main_team'", src,
-                         '还在用旧的 main_team 入口')
+        # OCR 优先、模板兜底
+        finder = src.split('def find_teampray_on_screen')[1]
+        self.assertLess(finder.index('self.ocr('), finder.index('_safe_find_one('),
+                        'find_teampray_on_screen 应该先 OCR 再退回模板')
+        self.assertIn('TEAMPRAY_PATTERN', src)
+        self.assertNotIn("swipe_find('main_team'", src, '还在用旧的 main_team 入口')
+
+    def test_share_retries_once(self):
+        """每日分享失败后要退回主页面重试一次。
+
+        一键日常跑的就是同一个 ShareTask，所以这里实现了，
+        「一键日常里的每日分享」也就一起有了重试。
+        """
+        from src.tasks.share_task import SHARE_RETRY, ShareTask
+        from src.tasks.page_nav import PageNavTask
+        self.assertEqual(1, SHARE_RETRY, '每日分享应重试 1 次')
+        # 重试需要"退回主页面"的能力
+        self.assertTrue(issubclass(ShareTask, PageNavTask),
+                        'ShareTask 必须继承 PageNavTask 才能 back_to_main')
+        self.assertTrue(callable(getattr(ShareTask, 'run_once', None)))
+        self.assertTrue(callable(getattr(ShareTask, 'should_stop', None)))
+        with open('src/tasks/share_task.py', encoding='utf-8') as f:
+            src = f.read()
+        run_body = src.split('def run_once')[0]
+        self.assertIn('range(SHARE_RETRY + 1)', run_body, '没有按 SHARE_RETRY 重试')
+        self.assertIn('back_to_main(', run_body, '重试前没有退回主页面')
+        self.assertIn('should_stop(', run_body, '没有响应停止')
 
     def test_guide_scroll_stays_inside_list(self):
         """滑动的起止点必须落在列表范围内。
@@ -654,18 +684,29 @@ class TestGuideEntry(unittest.TestCase):
         self.assertIn('GO_TEXT_PATTERN', gsrc, '「前往」没有 OCR 兜底')
 
     def test_guide_stops_at_list_bounds(self):
-        """到列表两端就不要再白滑了：listtop 停"往上"，listbottom 停"往下"。"""
+        """列表两端的判据用 OCR 认条目文字（用户指定）。
+
+        OCR 到「天赋」      => 已在列表顶部
+        OCR 到「忍具锻造」  => 已在列表底部
+        模板 guide_listtop / guide_listbottom 只作兜底（那两个标记很小，
+        滑过头就露不全、匹配不到）。
+        """
+        from src.tasks.guide_nav import GUIDE_BOTTOM_TEXT, GUIDE_TOP_TEXT
+        self.assertEqual('天赋', GUIDE_TOP_TEXT)
+        self.assertEqual('忍具锻造', GUIDE_BOTTOM_TEXT)
         self.assertEqual('guide_listtop', GUIDE_LISTTOP)
         self.assertEqual('guide_listbottom', GUIDE_LISTBOTTOM)
         with open('src/tasks/guide_nav.py', encoding='utf-8') as f:
             src = f.read()
-        self.assertIn('def at_guide_top', src)
-        self.assertIn('def at_guide_bottom', src)
-        sweep = src.split('def _sweep_entry')[1].split('def click_below')[0]
-        self.assertIn('at_guide_bottom()', sweep,
-                      '往下找之前没有检查是否已到最底部')
-        self.assertIn('at_guide_top()', sweep,
-                      '往上找之前没有检查是否已到最顶端')
+        # 两个判据都要先 OCR、再退回模板
+        top_body = src.split('def at_guide_top')[1].split('def at_guide_bottom')[0]
+        self.assertIn('_ocr_has(GUIDE_TOP_PATTERN)', top_body)
+        self.assertLess(top_body.index('_ocr_has('), top_body.index('_safe_find_one('),
+                        'at_guide_top 应该先 OCR 再退回模板')
+        bottom_body = src.split('def at_guide_bottom')[1].split('def _warn_if_bounds')[0]
+        self.assertIn('_ocr_has(GUIDE_BOTTOM_PATTERN)', bottom_body)
+        self.assertLess(bottom_body.index('_ocr_has('), bottom_body.index('_safe_find_one('),
+                        'at_guide_bottom 应该先 OCR 再退回模板')
 
     def test_stop_is_detected_for_both_stop_buttons(self):
         """两个「停止」入口都要能被检测到。
