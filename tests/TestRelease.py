@@ -59,6 +59,9 @@ REQUIRED_FEATURES = [
     'main_activity',           # 主界面右上角活动入口
     'activity_qiandao',        # 每月签到面板里的签到按钮
     'activity_qiandaocancel',  # 签到面板的关闭按钮
+    # 积分赛（src/tasks/pointrace_task.py）：本队战力靠这个图标定位，
+    # 读不到它就取不到数值，整个挑战流程都走不下去
+    'pointrace_personalpower',
 ]
 
 

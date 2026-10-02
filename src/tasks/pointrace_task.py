@@ -4,6 +4,16 @@ import re
 # 挑战没成功时额外重试的次数（1 表示最多打两次）
 CHALLENGE_RETRY = 1
 
+# 本队战力：先在画面里找 pointrace_personalpower 图标，再 OCR 它右侧的数字。
+# 原来靠全屏 OCR 找「本队战力」这几个字，那个词受字体和背景影响、识别不稳；
+# 图标是固定图，模板匹配很稳，数值又固定在图标右侧同一行。
+POWER_FEATURE = 'pointrace_personalpower'
+POWER_RETRY = 3                  # 最多尝试几轮
+POWER_REGION_WIDTH_RATIO = 2.5   # 向右扫的宽度 = 图标宽 × 这个倍数
+# 垂直方向要收紧：放宽太多会把上下行的数字也框进来。
+# 取 0.3 => 区域高 = 图标高 × 1.6，刚好裹住同一行。
+POWER_REGION_PAD_RATIO = 0.3
+
 
 class PointRaceTask(BaseTask):
     def __init__(self, *args, **kwargs):
@@ -180,34 +190,71 @@ class PointRaceTask(BaseTask):
     # ================= 本队战力 =================
 
     def get_my_power(self):
-        """全屏 OCR 找'本队战力：xxxx万'，最多重试 3 次"""
-        for attempt in range(3):
-            result = self.ocr()
-            if result:
-                # 诊断日志
-                for r in result:
-                    text = self._box_text(r)
-                    if '本队' in text or '战力' in text:
-                        self.log_info(f"[本队诊断] OCR文本: '{text}'")
+        """找 pointrace_personalpower 图标，再 OCR 它右侧的数字，返回「万」为单位的值。
 
-                for r in result:
-                    text = self._box_text(r)
-                    if '本队' in text and '排名' not in text:
-                        nums = re.findall(r'\d+', text)
-                        if nums:
-                            n = max(nums, key=len)
-                            self.log_info(f"本队战力 OCR 原文: '{text}' → {n}万")
-                            return int(n)
+        改用模板定位的原因：「本队战力」这四个字用全屏 OCR 找不稳定
+        （字体、描边、背景都会影响），而图标是固定图案，模板匹配稳得多；
+        数值固定在图标右侧同一行，只需要在图标右边一条窄区域做 OCR，
+        既快又不容易读到别的数字。
+        """
+        for attempt in range(1, POWER_RETRY + 1):
+            box = None
+            try:
+                box = self.find_one(POWER_FEATURE, threshold=0.8)
+            except Exception as e:
+                self.log_warning(f"[本队战力] 第 {attempt} 次查找图标出错: {e}")
 
-                self.log_warning(f"[本队诊断] 第 {attempt+1} 次没找到，OCR 共 {len(result)} 条")
+            if box is not None:
+                self.log_info(f"[本队战力] 第 {attempt} 次找到 {POWER_FEATURE} "
+                              f"({box.x}, {box.y}, {box.width}x{box.height})")
+                power = self.read_power_right_of(box)
+                if power is not None:
+                    return power
             else:
-                self.log_warning(f"[本队诊断] 第 {attempt+1} 次 OCR 无结果")
+                self.log_warning(f"[本队战力] 第 {attempt} 次没找到 {POWER_FEATURE} 图标")
 
-            if attempt < 2:
+            if attempt < POWER_RETRY:
                 self.sleep(1.0)
 
-        self.log_warning("3 次重试后仍未找到'本队战力'")
+        self.log_warning(f"{POWER_RETRY} 次重试后仍未读到本队战力")
         return None
+
+    def read_power_right_of(self, box):
+        """在 icon 右侧同一行做 OCR，取出最靠近图标的那个数字。
+
+        取「最靠左」而不是「最长」的数字：数值紧跟在图标右边，
+        再往右可能还有别的数字（比如排名），按位置取才不会被带跑。
+        """
+        w, h = self.width, self.height
+        x1 = (box.x + box.width) / w
+        x2 = min(1.0, (box.x + box.width * (1 + POWER_REGION_WIDTH_RATIO)) / w)
+        y1 = max(0.0, (box.y - box.height * POWER_REGION_PAD_RATIO) / h)
+        y2 = min(1.0, (box.y + box.height * (1 + POWER_REGION_PAD_RATIO)) / h)
+
+        self.log_info(f"[本队战力] 在图标右侧 OCR: "
+                      f"rel=({x1:.3f},{y1:.3f})->({x2:.3f},{y2:.3f})")
+        try:
+            result = self.ocr(x1, y1, x2, y2, log=True)
+        except Exception as e:
+            self.log_warning(f"[本队战力] 右侧区域 OCR 出错: {e}")
+            return None
+
+        candidates = []
+        for r in (result or []):
+            text = self._box_text(r)
+            nums = re.findall(r'\d+', text)
+            if not nums:
+                continue
+            candidates.append((getattr(r, 'x', 0), max(nums, key=len), text))
+
+        if not candidates:
+            self.log_warning("[本队战力] 图标右侧没读到数字")
+            return None
+
+        candidates.sort(key=lambda c: c[0])
+        _, number, text = candidates[0]
+        self.log_info(f"[本队战力] OCR 原文 '{text}' → {number} 万")
+        return int(number)
 
     # ================= 对手战力 =================
 

@@ -1131,6 +1131,19 @@
             ],
             "area": 6612,
             "iscrowd": 0
+        },
+        {
+            "id": 75,
+            "image_id": 7,
+            "category_id": 75,
+            "bbox": [
+                205,
+                414,
+                137,
+                43
+            ],
+            "area": 5891,
+            "iscrowd": 0
         }
     ],
     "categories": [
@@ -1502,6 +1515,11 @@
         {
             "id": 74,
             "name": "activity_qiandaocancel",
+            "supercategory": ""
+        },
+        {
+            "id": 75,
+            "name": "pointrace_personalpower",
             "supercategory": ""
         }
     ]
