@@ -1,0 +1,35 @@
+--- adb starting (pid 37240) ---
+10-02 08:55:59.083 37240 30932 I adb     : main.cpp:66 Android Debug Bridge version 1.0.41
+10-02 08:55:59.083 37240 30932 I adb     : main.cpp:66 Version 36.0.0-13206524
+10-02 08:55:59.083 37240 30932 I adb     : main.cpp:66 Installed as D:\Work\okNARUTO\ok-naruto\.venv\Lib\site-packages\adbutils\binaries\adb.exe
+10-02 08:55:59.083 37240 30932 I adb     : main.cpp:66 Running on Windows 10.0.26200
+10-02 08:55:59.083 37240 30932 I adb     : main.cpp:66 
+10-02 08:55:59.114 37240 30932 I adb     : udp_socket.cpp:170 AdbUdpSocket fd=2053
+10-02 08:55:59.115 37240 30932 I adb     : udp_socket.cpp:170 AdbUdpSocket fd=2054
+10-02 08:55:59.115 37240 30932 I adb     : udp_socket.cpp:274 SetMulticastOutboundInterface for index=8
+10-02 08:55:59.115 37240 30932 I adb     : udp_socket.cpp:533 bind endpoint=0.0.0.0:5353
+10-02 08:55:59.115 37240 30932 I adb     : udp_socket.cpp:274 SetMulticastOutboundInterface for index=8
+10-02 08:55:59.115 37240 30932 I adb     : udp_socket.cpp:558 bind endpoint=[0000:0000:0000:0000:0000:0000:0000:0000]:5353 scope_id=0
+10-02 08:55:59.115 37240 30932 I adb     : udp_socket.cpp:170 AdbUdpSocket fd=2055
+10-02 08:55:59.115 37240 30932 I adb     : udp_socket.cpp:274 SetMulticastOutboundInterface for index=9
+10-02 08:55:59.115 37240 30932 I adb     : udp_socket.cpp:533 bind endpoint=0.0.0.0:5353
+10-02 08:55:59.115 37240 30932 I adb     : udp_socket.cpp:170 AdbUdpSocket fd=2056
+10-02 08:55:59.115 37240 30932 I adb     : udp_socket.cpp:170 AdbUdpSocket fd=2057
+10-02 08:55:59.115 37240 30932 I adb     : udp_socket.cpp:274 SetMulticastOutboundInterface for index=24
+10-02 08:55:59.115 37240 30932 I adb     : udp_socket.cpp:533 bind endpoint=0.0.0.0:5353
+10-02 08:55:59.115 37240 30932 I adb     : udp_socket.cpp:274 SetMulticastOutboundInterface for index=24
+10-02 08:55:59.115 37240 30932 I adb     : udp_socket.cpp:558 bind endpoint=[0000:0000:0000:0000:0000:0000:0000:0000]:5353 scope_id=0
+10-02 08:55:59.115 37240 30932 I adb     : udp_socket.cpp:170 AdbUdpSocket fd=2058
+10-02 08:55:59.115 37240 30932 I adb     : udp_socket.cpp:170 AdbUdpSocket fd=2059
+10-02 08:55:59.115 37240 30932 I adb     : udp_socket.cpp:274 SetMulticastOutboundInterface for index=68
+10-02 08:55:59.115 37240 30932 I adb     : udp_socket.cpp:533 bind endpoint=0.0.0.0:5353
+10-02 08:55:59.116 37240 30932 I adb     : udp_socket.cpp:274 SetMulticastOutboundInterface for index=68
+10-02 08:55:59.116 37240 30932 I adb     : udp_socket.cpp:558 bind endpoint=[0000:0000:0000:0000:0000:0000:0000:0000]:5353 scope_id=0
+10-02 08:55:59.116 37240 13608 I adb     : transport.cpp:344 emulator-5554: read thread spawning
+10-02 08:55:59.116 37240 39088 I adb     : transport.cpp:315 emulator-5554: write thread spawning
+adb server killed by remote request
+10-02 08:55:59.303 37240 30932 I adb     : transport.cpp:1066 kicking transport 00EF4F00 emulator-5554
+10-02 08:55:59.303 37240 30932 I adb     : transport.cpp:416 BlockingConnectionAdapter(emulator-5554): stopping
+10-02 08:55:59.303 37240 13608 I adb     : transport.cpp:348 emulator-5554: read failed: Invalid argument
+10-02 08:55:59.303 37240 13608 I adb     : transport.cpp:1165 emulator-5554: connection terminated: read failed
+10-02 08:55:59.303 37240 30932 I adb     : transport.cpp:434 BlockingConnectionAdapter(emulator-5554): stopped
