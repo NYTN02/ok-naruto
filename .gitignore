@@ -71,3 +71,4 @@ autohelper
 working_images/
 
 .tmp/
+.adbtmp/
