@@ -385,6 +385,36 @@ class TestDailyTaskHardening(unittest.TestCase):
         self.assertEqual(1, CHALLENGE_RETRY, '积分赛挑战失败应额外重试 1 次')
         self.assertTrue(callable(getattr(PointRaceTask, 'wait_challenge_result', None)))
 
+    def test_pointrace_returns_to_opponent_screen(self):
+        """一场打完后游戏会退回 pointrace_challenge 界面，必须再点一次它
+        才能展开对手列表（pointrace_personalpower 才会出现）。
+
+        原来只在「当下恰好匹配到 pointrace_challenge」时才点，画面还在切换时
+        两个模板都匹配不到 -> 读战力失败 -> break 掉整个循环，剩下的挑战全丢。
+        现在统一走 ensure_opponent_screen()，这里守两件事：
+        """
+        self.assertTrue(callable(getattr(PointRaceTask, 'ensure_opponent_screen', None)),
+                        '缺少 ensure_opponent_screen')
+        with open('src/tasks/pointrace_task.py', encoding='utf-8') as f:
+            src = f.read()
+        self.assertIn('ensure_opponent_screen()', src, 'run() 里没有调用 ensure_opponent_screen()')
+
+    def test_windows_config_has_no_exe_filter(self):
+        """windows 段不能出现 exe/title 过滤。
+
+        ok-script 的 DeviceManager.update_capture() 只要看到这些键就会
+        reset_selected_hwnd，并把 preferred 改写成 pc_<hwnd> 窗口设备
+        （device=windows, capture=windows）—— 后果是每次进设置都要重选设备，
+        而且失去 ipc（点击落不到游戏上）。代价远大于「列表好看一点」。
+        """
+        win = app_config.config.get('windows') or {}
+        for key in ('exe', 'title', 'hwnd_class', 'top_hwnd_class', 'selected_hwnd'):
+            self.assertNotIn(
+                key, win,
+                f'windows 段出现了 {key}：会触发 update_capture 重置设备选择，'
+                f'导致每次都要重选模拟器设备、并失去 ipc',
+            )
+
     def test_coinpray_retry(self):
         self.assertEqual(3, COINPRAY_ATTEMPTS, 'team_coinpray 应最多点 3 次')
         self.assertEqual(2.0, COINPRAY_INTERVAL, 'team_coinpray 重试间隔应为 2 秒')

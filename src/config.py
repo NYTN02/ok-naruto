@@ -137,15 +137,22 @@ config = {
         }
     },
     'windows': {
-    # 窗口选择列表只保留模拟器窗口：
-    # 不填 exe 过滤时，GUI 会把桌面上所有可见窗口都列出来
-    # （实测连本程序自己、Chrome、QQ、资源管理器都在里面），
-    # 很容易选错，而选成普通窗口会走 windows 截图 + Pynput 键鼠，
-    # 点击落不到游戏上（必须选下面的「模拟器设备」才会用 MuMu 原生 IPC）。
+    # ⚠️ 这里**故意不写 exe / title 过滤**，不是忘了。
     #
-    # MuMuNxDevice.exe = 「MuMu安卓设备」窗口，就是要选的游戏窗口
-    # MuMuNxMain.exe   = 「MuMu模拟器」主界面窗口
-    'exe': ['MuMuNxDevice.exe', 'MuMuNxMain.exe'],
+    # 原因：ok-script 的 DeviceManager.update_capture()（见其 L851-882）里，
+    # 只要 windows 段出现 ('title','exe','hwnd_class','top_hwnd_class','selected_hwnd')
+    # 中任意一个键，就会把 reset_selected_hwnd 置为 True、丢掉上次记下的窗口，
+    # 接着 update_pc_device() 找出一个 pc_<hwnd> 窗口设备，并
+    # set_preferred_device(imei) 把 preferred 改写成那个窗口设备。
+    #
+    # 实测后果：本来手动选好的「MuMu安卓设备」(MuMuPlayer-12.0-0, device=adb,
+    # capture=ipc) 会被换成一个 MuMu模拟器主窗口的 pc_ 设备
+    # (device=windows, capture=windows) —— 于是每次进设置都得重新选一遍，
+    # 而且换过去之后没有 ipc，点击也落不到游戏上。
+    #
+    # 权衡：过滤窗口只让列表好看一点，代价是设备选择记不住 + 失去 ipc，
+    # 明显不划算。所以宁可列表里多几个窗口，也要保住设备选择。
+    # 用户只需要选一次「MuMuPlayer-12.0-0」，之后一直有效。
     'interaction': ['PyDirect', 'Genshin', 'Pynput', 'PostMessage', 'ForegroundPostMessage'],
     'capture_method': ['WGC', 'BitBlt_RenderFull', 'BitBlt'],
     'check_hdr': False,

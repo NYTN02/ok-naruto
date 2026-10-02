@@ -49,15 +49,13 @@ class PointRaceTask(BaseTask):
                 self.log_info(exit_reason)
                 break
 
-            # 2.2 如果有 pointrace_challenge，点击进入选对手页面
-            if self.find_one('pointrace_challenge', threshold=0.8):
-                self.log_info("检测到 pointrace_challenge，点击进入选对手页面")
-                if not self.wait_click_feature('pointrace_challenge',
-                                                threshold=0.8, time_out=3):
-                    exit_reason = "点击 pointrace_challenge 失败"
-                    self.log_error(exit_reason)
-                    break
-                self.sleep(1.5)
+            # 2.2 确保处在「选对手」界面
+            #     一场打完游戏会退回 pointrace_challenge 那个界面，
+            #     必须再点一次它才会展开对手列表（pointrace_personalpower 才出现）
+            if not self.ensure_opponent_screen():
+                exit_reason = "没能进入选对手界面"
+                self.log_error(exit_reason)
+                break
 
             # 2.3 识别本队战力
             my_power = self.get_my_power()
@@ -130,6 +128,45 @@ class PointRaceTask(BaseTask):
             self.log_warning("未找到退出按钮")
 
         self.log_info("积分赛任务结束")
+
+    # ================= 选对手界面 =================
+
+    def ensure_opponent_screen(self, attempts=3):
+        """确保当前处在「选对手」界面，返回是否成功。
+
+        判据用 pointrace_personalpower 是否可见 —— 它只在这个界面出现。
+        如果看不到它、但能看到 pointrace_challenge，说明还停在上一场结束后的
+        挑战界面（打完一场会退回这里），需要**再点一次 pointrace_challenge**
+        才会展开对手列表；这正是原来那段逻辑不够稳的地方：
+
+          原写法只在「当下恰好能匹配到 pointrace_challenge」时才点它。
+          而战斗刚结束时画面还在切（结算界面/淡出），两个模板可能都匹配不到，
+          于是直接跳到读战力 -> 读不到 -> break 掉整个循环，剩下的挑战全丢。
+
+        现在改成：以「personalpower 出现了没有」为准，没出现就尝试点
+        challenge 把它点出来，最多试 attempts 轮。
+        """
+        for i in range(1, attempts + 1):
+            if self.find_one(POWER_FEATURE, threshold=0.8):
+                return True
+
+            if self.find_one('pointrace_challenge', threshold=0.8):
+                self.log_info(f"[选对手] 第 {i} 次：点 pointrace_challenge 展开对手列表")
+                if not self.wait_click_feature('pointrace_challenge',
+                                                threshold=0.8, time_out=3):
+                    self.log_warning(f"[选对手] 第 {i} 次：点击 pointrace_challenge 失败")
+                self.sleep(1.5)
+                continue
+
+            # 两个都没有：多半还在切画面（结算/淡出），等一下再看
+            self.log_warning(f"[选对手] 第 {i} 次：既没有 {POWER_FEATURE}，"
+                             f"也没有 pointrace_challenge，等待画面切换")
+            self.sleep(1.5)
+
+        ok = self.find_one(POWER_FEATURE, threshold=0.8) is not None
+        if ok:
+            self.log_info("[选对手] 已进入选对手界面")
+        return ok
 
     # ================= 挑战结果轮询 =================
 
