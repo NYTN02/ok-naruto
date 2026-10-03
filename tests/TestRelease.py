@@ -509,13 +509,45 @@ class TestDailyTaskHardening(unittest.TestCase):
         self.assertEqual(3, COINPRAY_ATTEMPTS, 'team_coinpray 应最多点 3 次')
         self.assertEqual(2.0, COINPRAY_INTERVAL, 'team_coinpray 重试间隔应为 2 秒')
 
-    def test_coinorgin_and_teamfight_call_click_anywhere(self):
-        """两个任务都要真的调用 dismiss_click_anywhere，不能只是声明。"""
-        for rel in ('src/tasks/coinorgin_task.py', 'src/tasks/teamfight_task.py'):
-            with open(rel, encoding='utf-8') as f:
-                src = f.read()
-            self.assertIn('dismiss_click_anywhere()', src,
-                          f'{rel} 没有调用 dismiss_click_anywhere()')
+    def test_coinorgin_handles_click_anywhere(self):
+        """丰饶之间的战斗循环里保留了「点击任意位置关闭」的兜底处理。
+
+        （小队突袭那边已经改成盯 teamfight_win 了，不再用这个，见
+          test_teamfight_flow_uses_teamfight_win）
+        """
+        with open('src/tasks/coinorgin_task.py', encoding='utf-8') as f:
+            src = f.read()
+        self.assertIn('dismiss_click_anywhere()', src,
+                      'coinorgin 没有调用 dismiss_click_anywhere()')
+
+    def test_teamfight_flow_uses_teamfight_win(self):
+        """小队突袭：结算盯 teamfight_win，打完用 teamfight_teamhelp 判断能否继续。
+
+        关键点：打完一场回到的是**小队突袭界面**（teamfight_teamhelp 在那），
+        不是主界面 —— 所以不能再用 main_teamfight 当判据。这是实测踩过的坑。
+        """
+        import src.tasks.teamfight_task as tf
+        self.assertEqual('teamfight_win', tf.TEAMFIGHT_WIN)
+        self.assertEqual(2, tf.MAX_ROUNDS, '最多打两场')
+        self.assertTrue(callable(getattr(tf.TeamFightTask, 'settle_teamfight_win', None)))
+        for name in ('claim_rewards', 'prepare_and_start_battle', 'exit_with_popu_cancel'):
+            self.assertTrue(callable(getattr(tf.TeamFightTask, name, None)), f'缺少 {name}')
+        with open('src/tasks/teamfight_task.py', encoding='utf-8') as f:
+            src = f.read()
+        run_body = src.split('def claim_rewards')[0]        # 只看 run()
+        self.assertIn('settle_teamfight_win()', run_body, '第 7 步没有走 settle_teamfight_win')
+        self.assertIn("'teamfight_teamhelp'", run_body, '没有用 teamfight_teamhelp 判断能否继续')
+        self.assertIn('range(MAX_ROUNDS)', run_body, '没有按 MAX_ROUNDS 控制场次')
+        self.assertIn('detect_no_teamfight_chance()', run_body, '没有检查收益次数')
+        # 不该再有等主界面入口的逻辑
+        self.assertNotIn('wait_for_main_teamfight', src,
+                         '旧的 wait_for_main_teamfight 应该已经被 settle_teamfight_win 取代')
+        # 不该再有"用 main_teamfight 当判据"的调用
+        # （注意只能查调用写法：docstring 里为了说明原因提到了这个词）
+        self.assertNotIn("find_one('main_teamfight'", run_body,
+                         'run() 里还在用 main_teamfight 当判据')
+        self.assertNotIn('find_one("main_teamfight"', run_body,
+                         'run() 里还在用 main_teamfight 当判据')
 
 
 class TestGuideEntry(unittest.TestCase):
