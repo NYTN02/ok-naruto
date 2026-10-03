@@ -154,7 +154,7 @@ class TeamFightTask(GuideNavTask):
 
     def exit_with_popu_cancel(self):
         """点 popu_cancel 退出小队突袭界面。"""
-        if self.wait_click_feature('popu_cancel', threshold=0.8, time_out=3):
+        if self.wait_click('popu_cancel', threshold=0.8, time_out=3):
             self.log_info("已点击 popu_cancel 退出")
         else:
             self.log_warning("未找到 popu_cancel")

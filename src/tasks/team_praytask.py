@@ -47,33 +47,28 @@ class TeamPrayTask(GuideNavTask):
         self.log_info("开始组织祈福...")
 
         # ========== 1. 走「每日任务」进入祈福界面 ==========
+        # enter_teampray() 走的路径是：
+        #   main_reward -> 每日任务 -> OCR 找「组织祈福」-> 点它正下方的「立刻前往」
+        # 点完「立刻前往」**已经直接落在祈福界面**（team_coinpray 就在这个界面上）。
+        #
+        # ⚠️ 所以这里不能再有旧入口留下的两步：
+        #      team_playway（玩法） 和 OCR 点「前往」
+        #    那是"组织 -> 玩法 -> 前往"那条老路才需要的中间步骤。
+        #    实测踩过：进入祈福界面后去等 team_playway，等 5 秒拿不到，
+        #    wait_click_feature 直接抛 WaitFailedException 把整个任务炸掉。
         if not self.enter_teampray():
             self.log_error("没能进入祈福界面，任务终止")
             return
         self.sleep(1.5)
 
-        # ========== 2. 点击玩法 ==========
-        if not self.wait_click_feature('team_playway', threshold=0.8, time_out=5):
-            self.log_error("未找到玩法按钮")
-            self.cleanup_exit()
-            return
-        self.sleep(1.2)
-
-        # ========== 3. OCR 点击最左边的"前往" ==========
-        if not self.click_leftmost_ocr("前往", time_out=3.0):
-            self.log_error("未找到'前往'按钮")
-            self.cleanup_exit()
-            return
-        self.sleep(1.5)
-
-        # ========== 4. 点击 team_coinpray（最多 3 次，每次间隔 2 秒）==========
+        # ========== 2. 点击 team_coinpray（最多 3 次，每次间隔 2 秒）==========
         if not self.click_coinpray():
             self.log_warning("3 次都没点到 team_coinpray，尝试退出")
             self.cleanup_exit()
             return
         self.sleep(1.2)
 
-        # ========== 4.5 检测"今日次数已达上限" ==========
+        # ========== 3. 检测"今日次数已达上限" ==========
         if self.click_ocr_text("今日次数已达上限", time_out=2.0):
             self.log_info("检测到'今日次数已达上限'，点击确定")
             self.sleep(1.0)
@@ -120,12 +115,12 @@ class TeamPrayTask(GuideNavTask):
         self.sleep(1.0)
 
         # ========== 7. 点击 popu_cancel ==========
-        if self.wait_click_feature('popu_cancel', threshold=0.8, time_out=3):
+        if self.wait_click('popu_cancel', threshold=0.8, time_out=3):
             self.log_info("已点击 popu_cancel")
             self.sleep(1.0)
 
         # ========== 8. 点击 team_cancel 退出到主页面 ==========
-        if self.wait_click_feature('team_cancel', threshold=0.8, time_out=3):
+        if self.wait_click('team_cancel', threshold=0.8, time_out=3):
             self.log_info("已点击 team_cancel")
         else:
             self.log_warning("未找到 team_cancel")

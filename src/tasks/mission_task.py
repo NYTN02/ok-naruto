@@ -92,7 +92,7 @@ class MissionTask(GuideNavTask):
     def exit_mission_hall(self):
         """点 popu_cancel 退出任务集会所界面。"""
         self.sleep(0.5)
-        if self.wait_click_feature('popu_cancel', threshold=0.8, time_out=3):
+        if self.wait_click('popu_cancel', threshold=0.8, time_out=3):
             self.log_info("已退出任务集会所")
         else:
             self.log_warning("未找到退出按钮")
@@ -150,7 +150,7 @@ class MissionTask(GuideNavTask):
             self.sleep(0.8)
 
         # 点击"出发"
-        if not self.wait_click_feature('mission_go', threshold=0.8, time_out=4):
+        if not self.wait_click('mission_go', threshold=0.8, time_out=4):
             self.log_warning("没等到'出发'按钮，判定这次接取失败")
             try:
                 if self.find_one('popu_cancel', threshold=0.8):

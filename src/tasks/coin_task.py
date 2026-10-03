@@ -1,7 +1,8 @@
 from ok import BaseTask
+from src.tasks.page_nav import PageNavTask
 
 
-class CoinTask(BaseTask):
+class CoinTask(PageNavTask):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.name = "领取铜币"
@@ -39,7 +40,7 @@ class CoinTask(BaseTask):
                 self.log_warning("达到最大次数，按钮仍未消失")
         finally:
             self.sleep(0.5)
-            if self.wait_click_feature('coin_cancel', threshold=0.8, time_out=3):
+            if self.wait_click('coin_cancel', threshold=0.8, time_out=3):
                 self.log_info("已点击退出")
             else:
                 self.log_warning("未找到退出按钮")

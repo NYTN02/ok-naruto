@@ -964,5 +964,63 @@ class TestNoUndefinedConstants(unittest.TestCase):
                          + '\n  '.join(problems))
 
 
+class TestWaitClickSafety(unittest.TestCase):
+    """wait_click 必须"找不到返回 False"，不能抛异常、更不能自调用。
+
+    踩过的坑：ok-script 的 wait_click_feature 默认 raise_if_not_found=True，
+    超时抛 WaitFailedException；而我们代码里到处写的是
+    `if not self.wait_click(...)`（意思是找不到当 False）。
+    两边假设不一致 —— 组织祈福实测因此被炸掉整个任务
+    （新版入口已经直接进祈福界面，却还去等旧的 team_playway，
+     等 5 秒拿不到就抛异常）。
+    """
+
+    def test_wait_click_wraps_without_raising(self):
+        with open('src/tasks/page_nav.py', encoding='utf-8') as f:
+            src = f.read()
+        body = src.split('def wait_click(')[1].split('# 内部小工具')[0]
+        # 只看真正的代码行，去掉 docstring / 注释（里面为了举例写了 self.wait_click(...)）
+        code = '\n'.join(
+            ln for ln in body.splitlines()
+            if not ln.lstrip().startswith(('#', 'if not self.wait_click(', '``', '"""'))
+        )
+        self.assertIn('self.wait_click_feature(', code,
+                      'wait_click 必须调 ok-script 的 wait_click_feature')
+        self.assertIn('raise_if_not_found=False', code,
+                      '没有关掉 raise_if_not_found，超时还是会抛异常')
+        self.assertNotIn('return bool(self.wait_click(', code,
+                         'wait_click 自调用会无限递归')
+
+    def test_all_tasks_using_wait_click_inherit_it(self):
+        """凡是用 wait_click 的任务，基类必须真的提供它。"""
+        import importlib
+        for mod_name, cls_name in (
+            ('coin_task', 'CoinTask'), ('friend_task', 'FriendTask'),
+            ('test_task', 'TestTask'), ('team_praytask', 'TeamPrayTask'),
+            ('teamfight_task', 'TeamFightTask'), ('mission_task', 'MissionTask'),
+            ('pointrace_task', 'PointRaceTask'), ('ranklist_task', 'RankListTask'),
+        ):
+            cls = getattr(importlib.import_module(f'src.tasks.{mod_name}'), cls_name)
+            self.assertTrue(callable(getattr(cls, 'wait_click', None)),
+                            f'{cls_name} 拿不到 wait_click（基类不是 PageNavTask？）')
+
+    def test_teampray_has_no_legacy_entry_steps(self):
+        """组织祈福不能再去走旧入口的中间步骤。
+
+        旧路径是「组织 -> 玩法(team_playway) -> 前往 -> team_coinpray」；
+        新路径（每日任务 -> 组织祈福 -> 立刻前往）**已经直接落在祈福界面**，
+        所以 team_playway / OCR 点「前往」这两步必须去掉，否则会等不到元素而崩。
+        """
+        with open('src/tasks/team_praytask.py', encoding='utf-8') as f:
+            src = f.read()
+        run_body = src.split('def enter_teampray')[0]      # 只看 run()
+        self.assertNotIn("wait_click('team_playway'", run_body,
+                         'run() 里还在等旧的 team_playway')
+        self.assertNotIn('click_leftmost_ocr("前往"', run_body,
+                         'run() 里还在点旧入口的「前往」')
+        self.assertIn('enter_teampray()', run_body)
+        self.assertIn('click_coinpray()', run_body)
+
+
 if __name__ == '__main__':
     unittest.main()

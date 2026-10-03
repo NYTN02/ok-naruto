@@ -114,7 +114,7 @@ class PointRaceTask(GuideNavTask):
 
             if target is None:
                 self.log_info("没有低于自己战力的对手，尝试刷新")
-                if not self.wait_click_feature('pointrace_coinfresh',
+                if not self.wait_click('pointrace_coinfresh',
                                                 threshold=0.8, time_out=3):
                     exit_reason = "刷新按钮消失且无低战力对手"
                     self.log_info(exit_reason)
@@ -156,7 +156,7 @@ class PointRaceTask(GuideNavTask):
 
         # ========== 3. 退出 ==========
         self.sleep(0.5)
-        if self.wait_click_feature('popu_cancel', threshold=0.8, time_out=3):
+        if self.wait_click('popu_cancel', threshold=0.8, time_out=3):
             self.log_info("已退出积分赛")
         else:
             self.log_warning("未找到退出按钮")
@@ -186,7 +186,7 @@ class PointRaceTask(GuideNavTask):
 
             if self.find_one('pointrace_challenge', threshold=0.8):
                 self.log_info(f"[选对手] 第 {i} 次：点 pointrace_challenge 展开对手列表")
-                if not self.wait_click_feature('pointrace_challenge',
+                if not self.wait_click('pointrace_challenge',
                                                 threshold=0.8, time_out=3):
                     self.log_warning(f"[选对手] 第 {i} 次：点击 pointrace_challenge 失败")
                 self.sleep(1.5)

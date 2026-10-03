@@ -23,14 +23,14 @@ class RankListTask(GuideNavTask):
         self.sleep(1.5)
 
         # 2. 尝试点击点赞按钮
-        if self.wait_click_feature('ranklist_firstgood', threshold=0.8, time_out=5):
+        if self.wait_click('ranklist_firstgood', threshold=0.8, time_out=5):
             self.log_info("已点击点赞")
             self.sleep(1.0)
         else:
             self.log_info("未找到点赞按钮，直接退出")
 
         # 3. 点击 popu_cancel 退出
-        if self.wait_click_feature('popu_cancel', threshold=0.8, time_out=3):
+        if self.wait_click('popu_cancel', threshold=0.8, time_out=3):
             self.log_info("已点击退出")
         else:
             self.log_warning("未找到退出按钮")

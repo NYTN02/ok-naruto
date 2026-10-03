@@ -251,6 +251,35 @@ class PageNavTask(BaseTask):
             return True
         return False
 
+    def wait_click(self, feature, threshold=0.8, time_out=5.0, **kwargs):
+        """等一个元素出现并点击它；**找不到就返回 False，不抛异常**。
+
+        为什么要有这个包装：ok-script 的 ``wait_click_feature`` 默认
+        ``raise_if_not_found=True``，超时会抛 ``WaitFailedException``；
+        而我们代码里到处写的是::
+
+            if not self.wait_click('xxx', time_out=5):
+                ...按"没找到"处理...
+
+        意思是"找不到当 False"。两边假设不一致，一旦某个元素没出现
+        （比如界面改版、入口变了），异常会一路冒到 DailyTask，
+        整个任务被记成"执行异常"而中断 —— 组织祈福实测踩过这个坑
+        （新版入口已经直接进祈福界面了，却还去等旧的 team_playway）。
+
+        所以统一走这里：``raise_if_not_found=False`` + 兜住异常，
+        调用方的 ``if not`` 判断才真的成立。
+        """
+        kwargs.pop('raise_if_not_found', None)
+        try:
+            # 注意这里调的是 ok-script 的 wait_click_feature，**不是自己** ——
+            # 批量替换调用点时差点把它一起改成 self.wait_click，那就成无限递归了
+            return bool(self.wait_click_feature(
+                feature, threshold=threshold, time_out=time_out,
+                raise_if_not_found=False, **kwargs))
+        except Exception as e:
+            self.log_warning(f"等待并点击 {feature} 失败（按未找到处理）: {e}")
+            return False
+
     # ------------------------------------------------------------------
     # 内部小工具
     # ------------------------------------------------------------------
