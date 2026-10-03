@@ -686,13 +686,13 @@ class TestGuideEntry(unittest.TestCase):
     def test_guide_stops_at_list_bounds(self):
         """列表两端的判据用 OCR 认条目文字（用户指定）。
 
-        OCR 到「天赋」      => 已在列表顶部
+        OCR 到「装备」      => 已在列表顶部
         OCR 到「忍具锻造」  => 已在列表底部
         模板 guide_listtop / guide_listbottom 只作兜底（那两个标记很小，
         滑过头就露不全、匹配不到）。
         """
         from src.tasks.guide_nav import GUIDE_BOTTOM_TEXT, GUIDE_TOP_TEXT
-        self.assertEqual('天赋', GUIDE_TOP_TEXT)
+        self.assertEqual('装备', GUIDE_TOP_TEXT)
         self.assertEqual('忍具锻造', GUIDE_BOTTOM_TEXT)
         self.assertEqual('guide_listtop', GUIDE_LISTTOP)
         self.assertEqual('guide_listbottom', GUIDE_LISTBOTTOM)

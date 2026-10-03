@@ -52,15 +52,17 @@ GUIDE_ENTRY = 'main_guide'      # 主页面上的「指南」入口
 GUIDE_CANCEL = 'guide_cancel'   # 指南里的关闭按钮
 
 # 列表两端怎么判定：**用 OCR 认两端的条目文字**（用户指定）。
-#   OCR 到「天赋」     => 已经在列表最顶端，不能再往顶部滑
+#   OCR 到「装备」     => 已经在列表最顶端，不能再往顶部滑
 #   OCR 到「忍具锻造」 => 已经在列表最底部，不能再往底部滑
+#
+# 注：顶部判据最初写的是「天赋」，实测不对 —— 列表最上面那一项是「装备」。
 #
 # 为什么不用 guide_listtop / guide_listbottom 那两个模板：那两个标记很小，
 # 滑过头就露不全、匹配不到，会出现"已经到头却还以为能继续滑"的假象。
 # OCR 认条目文字稳得多。两个模板作为兜底保留（两条路都有更稳）。
 GUIDE_LISTTOP = 'guide_listtop'
 GUIDE_LISTBOTTOM = 'guide_listbottom'
-GUIDE_TOP_TEXT = '天赋'          # 列表最上面那一项
+GUIDE_TOP_TEXT = '装备'          # 列表最上面那一项
 GUIDE_BOTTOM_TEXT = '忍具锻造'   # 列表最下面那一项
 GUIDE_TOP_PATTERN = re.compile(re.escape(GUIDE_TOP_TEXT))
 GUIDE_BOTTOM_PATTERN = re.compile(re.escape(GUIDE_BOTTOM_TEXT))
