@@ -64,8 +64,13 @@ GUIDE_LISTTOP = 'guide_listtop'
 GUIDE_LISTBOTTOM = 'guide_listbottom'
 GUIDE_TOP_TEXT = '装备'          # 列表最上面那一项
 GUIDE_BOTTOM_TEXT = '忍具锻造'   # 列表最下面那一项
-GUIDE_TOP_PATTERN = re.compile(re.escape(GUIDE_TOP_TEXT))
-GUIDE_BOTTOM_PATTERN = re.compile(re.escape(GUIDE_BOTTOM_TEXT))
+# ⚠️ 两端判据必须用**全等匹配**（^...$），不能用包含匹配。
+#    踩过的坑：原来顶部判据写「天赋」，结果列表底部有一项叫「修罗天赋」，
+#    它的 OCR 文本里也含「天赋」两个字 —— 于是滑到底部时被误判成"到顶了"，
+#    方向判断反过来，往上找就永远收敛不了。
+#    加锚点后就只认整条文本完全一致，不会被子串误触发。
+GUIDE_TOP_PATTERN = re.compile(r'^' + re.escape(GUIDE_TOP_TEXT) + r'$')
+GUIDE_BOTTOM_PATTERN = re.compile(r'^' + re.escape(GUIDE_BOTTOM_TEXT) + r'$')
 
 # 在指南列表上滑动的手势（相对坐标），由用户实测指定。
 #

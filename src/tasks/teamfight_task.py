@@ -7,6 +7,10 @@ GUIDE_ITEM = 'guide_teamfight'
 GUIDE_TEXT = '小队突袭'   # 指南列表里条目的文字（OCR 识别）
 GUIDE_GO = 'guide_teamfightgo'
 
+# 战斗结算：检测到 teamfight_win 就不断点击它推进结算，直到它消失
+TEAMFIGHT_WIN = 'teamfight_win'
+TEAMFIGHT_WIN_INTERVAL = 1.0    # 两次点击之间的间隔
+
 # 「邀请」列表上滑时的 x 坐标（相对屏幕宽度）。
 # 取很小的值贴着屏幕左边缘滑：这里不会压到邀请卡片本身，
 # 拖动更稳（换成 0.20 之类的中间位置容易误触卡片或拖不动列表）。
@@ -179,19 +183,40 @@ class TeamFightTask(GuideNavTask):
     # ================= 等待回主界面 =================
 
     def wait_for_main_teamfight(self, timeout=120):
+        """打完等结算、再等回到主界面。
+
+        结算判据是 ``teamfight_win``（胜利结算界面的那个元素）：
+        检测到就**不断点击它**推进结算，直到它消失；
+        之后再等主界面的 ``main_teamfight`` 出现。
+
+        原来这里是用「点击任意位置关闭」的 OCR 兜底的，实测不稳，
+        改成盯 teamfight_win 更直接。
+        """
         start = time.time()
+        win_clicks = 0
         while time.time() - start < timeout:
-            # 战斗/领奖结束后常会弹「点击任意位置关闭」，先把它和后续弹窗清掉，
-            # 否则会被它挡着一直找不到入口
-            if self.dismiss_click_anywhere():
-                self.log_info("已处理「任意位置关闭」提示，继续等待回到主界面")
+            if self.should_stop('小队突袭等待结算'):
+                return False
+
+            # 1. 结算界面：不断点 teamfight_win
+            box = self._safe_find_one(TEAMFIGHT_WIN)
+            if box is not None:
+                win_clicks += 1
+                self.click_box(box)
+                self.log_info(f"第 {win_clicks} 次点击 {TEAMFIGHT_WIN} "
+                              f"({box.x}, {box.y})，推进结算")
+                self.sleep(TEAMFIGHT_WIN_INTERVAL)
                 continue
 
-            box = self.find_one('main_teamfight', threshold=0.8)
-            if box:
-                self.log_info(f"检测到 main_teamfight，用时 {int(time.time() - start)} 秒")
+            # 2. 已经回到主界面（能看见小队突袭入口）
+            if self._safe_find_one('main_teamfight'):
+                self.log_info(f"检测到 main_teamfight，用时 {int(time.time() - start)} 秒"
+                              f"（共点了 {win_clicks} 次 {TEAMFIGHT_WIN}）")
                 return True
-            self.sleep(2.0)
+
+            self.sleep(1.5)
+
+        self.log_warning(f"{timeout} 秒内没等到 {TEAMFIGHT_WIN} 结算完 / 回到主界面")
         return False
 
     # ================= 兜底清理 =================

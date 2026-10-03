@@ -14,8 +14,11 @@ CI（.github/workflows/build.yml 的 "Run tests" 步骤）会在打包前跑 tes
 这些坑前面都真实踩过，所以固化成用例。
 """
 
+import ast
+import glob
 import json
 import os
+import re
 import unittest
 
 try:
@@ -46,7 +49,7 @@ from src.tasks.guide_nav import (
     GUIDE_STUCK_TOLERANCE,
     GuideNavTask,
 )
-from src.tasks.mission_task import MAX_ACCEPT_RETRY, MissionTask
+from src.tasks.mission_task import ACCEPT_ATTEMPTS, MissionTask
 from src.tasks.page_nav import (
     CANCEL_FEATURES,
     CLICK_ANYWHERE_PATTERNS,
@@ -429,30 +432,33 @@ class TestDailyTaskHardening(unittest.TestCase):
                 f'必须继承 PageNavTask',
             )
 
-    def test_mission_accept_retry(self):
-        self.assertEqual(2, MAX_ACCEPT_RETRY, '任务集会所接取失败应重试 2 次')
-        for name in ('run_once', 'accept_one_mission'):
-            self.assertTrue(callable(getattr(MissionTask, name, None)), f'缺少 {name}')
+    def test_mission_two_phase_flow(self):
+        """任务集会所：先只领奖励，再专门进去接取；接取最多 3 次（首次 + 重试 2 次）。
 
-    def test_mission_retries_when_nothing_was_accepted(self):
-        """「一次都没点到接取」(empty) 也必须重试 —— 用户明确要求过。
-
-        一开始我把 empty（今天已接满之类的正常情况）当成终止条件，不重试；
-        但用户要求「没点到接取就回主页面重进再试」，所以三种失败都要能重试：
-            no_entry / empty / failed
+        用户指定的流程：
+            第 1 次进入：只领取奖励，然后回主页面
+            第 2 次进入：接取（尝试 1）-> 没接到就回主页重进（尝试 2）（尝试 3）
+            3 次都没接到 -> 判定为异常并跳过
         """
+        self.assertEqual(3, ACCEPT_ATTEMPTS, '接取应最多尝试 3 次（首次 + 重试 2 次）')
+        for name in ('enter_mission_hall', 'exit_mission_hall', 'accept_missions'):
+            self.assertTrue(callable(getattr(MissionTask, name, None)),
+                            f'缺少 {name}（流程被拆成这几步）')
         with open('src/tasks/mission_task.py', encoding='utf-8') as f:
             src = f.read()
-        run_body = src.split('def run_once')[0]        # 只看 run()
-        # 只有 ok 才直接收工
-        self.assertIn("if status == 'ok':", run_body)
-        # 三种失败都要出现在重试原因表里
-        for key in ('no_entry', 'empty', 'failed'):
-            self.assertIn(f"'{key}'", run_body,
-                          f'run() 里没有处理 {key}，它不会走重试分支')
-        # 不能有一遇到就 return 的分支
-        self.assertNotIn("if status == 'no_entry':", run_body,
-                         'no_entry 不应直接 return，应回主页面重试')
+        run_body = src.split('def enter_mission_hall')[0]      # 只看 run()
+        # 阶段 1：先只领奖
+        self.assertIn('只领取奖励', run_body, '没有"第 1 次进入只领奖"这一步')
+        # 阶段 2：接取循环受 ACCEPT_ATTEMPTS 控制
+        self.assertIn('range(1, ACCEPT_ATTEMPTS + 1)', run_body,
+                      '接取没有按 ACCEPT_ATTEMPTS 重试')
+        # 每次失败都要回主页面重新进入
+        self.assertIn('back_to_main(', run_body, '失败后没有回主页面')
+        self.assertIn('enter_mission_hall()', run_body, '没有重新进入任务集会所')
+        # 3 次都不行要判为异常并跳过
+        self.assertIn('判定为异常', run_body, '没有"判为异常并跳过"的收尾')
+        # 不应该再有旧的一次性 run_once
+        self.assertNotIn('def run_once', src, '旧的 run_once 应该已经被拆掉')
 
     def test_pointrace_entry_retry(self):
         """积分赛：没检测到并点到「挑战」时，回主页面重进，只重试一次。"""
@@ -841,6 +847,89 @@ class TestGuideEntry(unittest.TestCase):
         import src.tasks.share_task as st
         self.assertEqual(15, st.PERSONAL_SHARE_TIMEOUT)
         self.assertGreater(st.PERSONAL_SHARE_TIMEOUT, 5, '应比原来的 5 秒更长')
+
+
+class TestNoUndefinedConstants(unittest.TestCase):
+    """静态找出「用了但没定义」的全大写常量。
+
+    踩过的坑：team_praytask 里函数体用了 REWARD_GO_TIMEOUT，常量块里却只有
+    REWARD_ITEM_TIMEOUT —— import 不报错、编译不报错，**只在一键日常跑到那一步
+    才抛 NameError**（用户实测才发现的）。这类错误用 ast 就能查出来。
+
+    做法：把每个任务模块里所有形如 XXX_YYY 的大写名字收集起来，
+    凡是在函数体里被读取、但模块全局里没有定义、也不是参数/局部变量的，就报出来。
+    """
+
+    UPPER_RE = re.compile(r'^[A-Z][A-Z0-9_]{2,}$')
+
+    def _module_level_names(self, tree):
+        names = set()
+        for node in tree.body:
+            if isinstance(node, (ast.Assign, ast.AnnAssign)):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                for t in targets:
+                    # 注意要用 walk：像 `A, B = 0.05, 0.30` 这种元组赋值，
+                    # 目标是 ast.Tuple 而不是 ast.Name，只看 Name 会漏掉
+                    # （一开始就是这么误报了 GUIDE_LIST_SIG_* ）
+                    for sub in ast.walk(t):
+                        if isinstance(sub, ast.Name):
+                            names.add(sub.id)
+            elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                for a in node.names:
+                    names.add(a.asname or a.name.split('.')[0])
+            elif isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+                names.add(node.name)
+        return names
+
+    def _local_names(self, func):
+        names = set()
+        for a in list(func.args.args) + list(func.args.kwonlyargs) + list(func.args.posonlyargs):
+            names.add(a.arg)
+        if func.args.vararg:
+            names.add(func.args.vararg.arg)
+        if func.args.kwarg:
+            names.add(func.args.kwarg.arg)
+        for node in ast.walk(func):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+                names.add(node.id)
+            elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                for a in node.names:
+                    names.add(a.asname or a.name.split('.')[0])
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                names.add(node.name)
+            elif isinstance(node, ast.ExceptHandler) and node.name:
+                names.add(node.name)
+            elif isinstance(node, (ast.comprehension,)):
+                for t in ast.walk(node.target):
+                    if isinstance(t, ast.Name):
+                        names.add(t.id)
+            elif isinstance(node, ast.arg):
+                names.add(node.arg)
+        return names
+
+    def test_task_modules_have_no_undefined_constants(self):
+        import builtins
+        problems = []
+        modules = sorted(glob.glob(os.path.join('src', '**', '*.py'), recursive=True))
+        self.assertTrue(modules, '没找到任何 src 下的模块')
+        for path in modules:
+            with open(path, encoding='utf-8') as f:
+                src = f.read()
+            tree = ast.parse(src, filename=path)
+            global_names = self._module_level_names(tree) | set(dir(builtins))
+            for func in [n for n in ast.walk(tree)
+                         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]:
+                known = global_names | self._local_names(func)
+                for node in ast.walk(func):
+                    if not isinstance(node, ast.Name) or not isinstance(node.ctx, ast.Load):
+                        continue
+                    if not self.UPPER_RE.match(node.id):
+                        continue          # 只查全大写的常量名
+                    if node.id not in known:
+                        problems.append(f'{path}:{node.lineno} {func.name}() 用了未定义的常量 {node.id}')
+        self.assertEqual([], problems,
+                         '有常量被使用但没有定义（运行时才会抛 NameError）:\n  '
+                         + '\n  '.join(problems))
 
 
 if __name__ == '__main__':

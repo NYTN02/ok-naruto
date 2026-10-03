@@ -28,9 +28,14 @@ GUIDE_ITEM = 'guide_coinorign'
 GUIDE_TEXT = '丰饶之间'   # 指南列表里条目的文字（OCR 识别）
 GUIDE_GO = 'guide_coinorigngo'
 
-# 战斗结算界面的关键词：看到任意一个就认为这一局打完了。
-# 注意用正则做包含匹配——ok-script 传纯字符串时是**精确匹配**，
-# match=['击败'] 不会命中「击败20个掘金贼」。
+# 结算判据：识别到 coinorign_jingyan（结算界面上的「经验」元素）就认为这局打完了。
+# 之后**不断点击它**推进结算，再点 popu_cancel 退回主页面。
+JINGYAN_FEATURE = 'coinorign_jingyan'
+JINGYAN_CLICK_INTERVAL = 1.0    # 点 coinorign_jingyan 的间隔
+JINGYAN_MAX_CLICKS = 60         # 最多点几次，防止卡住
+
+# 结算关键词（兜底判据）。注意用正则做包含匹配——ok-script 传纯字符串时是
+# **精确匹配**，match=['击败'] 不会命中「击败20个掘金贼」。
 BATTLE_END_PATTERNS = [
     re.compile(r'经验'),
     re.compile(r'挑战成功'),
@@ -103,12 +108,13 @@ class CoinOrginTask(CombatTask):
         大招能量未满时点了没反应，所以不用额外判断，直接点即可；技能有冷却，
         点了也不亏，循环会反复重试。
 
-        结束判定（主 + 辅）：
-          主：OCR 到「经验」等结算关键词 —— 这是本任务原本的需求，也是最先
-              能确认"这局打完了"的信号，每 ``OCR_CHECK_EVERY`` 轮查一次。
-          辅：核心技能按钮连续 ``UI_GONE_CONFIRM`` 次刷新都消失 —— 结算时整个
-              战斗 HUD 会一起消失，比 OCR 更快一点，但要连续确认，以免被技能
-              动画期间的 HUD 隐藏误判。
+        结束判定：
+          **主判据**：识别到 ``coinorign_jingyan``（结算界面上的「经验」元素）——
+                     这是用户指定的判据，比 OCR 认文字稳。
+          **辅助**：核心技能按钮连续 ``UI_GONE_CONFIRM`` 次刷新都消失 ——
+                   结算时整个战斗 HUD 会一起消失，比模板匹配更快一点，
+                   但要连续确认，以免被技能动画期间的 HUD 隐藏误判。
+          **兜底**：OCR 到「经验」等结算关键词。
 
         ``grace_loops``：前若干轮不做结束判定，避免刚进战斗误判"已结束"。
         """
@@ -118,16 +124,21 @@ class CoinOrginTask(CombatTask):
             if self.should_stop('战斗循环'):
                 return False
 
-            # 主判据：结算界面 OCR（"经验"等）
+            # 主判据：结算界面的 coinorign_jingyan
             if i >= grace_loops and i % OCR_CHECK_EVERY == 0:
+                if self._safe_find_one(JINGYAN_FEATURE):
+                    self.log_info(f"第 {i + 1} 轮识别到 {JINGYAN_FEATURE}，本局结束")
+                    return True
+
                 # 战斗途中可能弹「点击任意位置关闭」（被踢出 / 断线等）。
                 # 处理完通常已经被送回主页面，本局就到此为止。
                 if self.dismiss_click_anywhere():
                     self.log_warning("战斗中出现「任意位置关闭」，已退回主页面，本局结束")
                     return True
 
+                # 兜底：OCR 认结算关键词
                 if self.detect_ocr_text_any(BATTLE_END_PATTERNS):
-                    self.log_info(f"第 {i + 1} 轮 OCR 检测到结算界面（经验），战斗结束")
+                    self.log_info(f"第 {i + 1} 轮 OCR 检测到结算关键词，战斗结束")
                     return True
 
             # 辅助判据：技能按钮整体消失，连续确认
@@ -169,25 +180,52 @@ class CoinOrginTask(CombatTask):
         return self.back_to_main(max_rounds=max_rounds, interval=interval)
 
     def return_to_main(self, max_clicks=60, interval=1.0):
-        """持续点击屏幕中央推进结算，直到出现 main_adventure 回到主界面。
+        """结算阶段：**不断点击 coinorign_jingyan**，然后点 popu_cancel 退回主页面。
 
-        对应最初的需求：看到"经验"之后，每隔 ``interval`` 秒点一次屏幕中央，
-        最多点 ``max_clicks`` 次，直到模板匹配到主界面的 main_adventure。
+        用户指定的流程：
+          1. 识别到 coinorign_jingyan 之后，不断点它推进结算，直到它消失
+          2. 点 popu_cancel 退出到主页面
+
+        （原来是每 1 秒点一次屏幕中央直到出现 main_adventure；改成盯
+          coinorign_jingyan 更明确，也不会误点到别的按钮。）
         """
-        self.log_info("开始持续点击屏幕中央，跳过结算直到回到主界面...")
-        self.sleep(1.0)
-        for i in range(max_clicks):
+        self.log_info(f"开始结算：不断点击 {JINGYAN_FEATURE} ...")
+        clicks = 0
+        for i in range(min(max_clicks, JINGYAN_MAX_CLICKS)):
             if self.should_stop('结算点击'):
                 return False
-            # 结算 / 领奖时可能弹「点击任意位置关闭」，先把它和后续弹窗清掉
-            if self.dismiss_click_anywhere():
-                self.log_info("已处理「任意位置关闭」提示")
-            self.click_relative(0.5, 0.5)
-            self.sleep(interval)
-            if self.find_one('main_adventure', threshold=0.8):
-                self.log_info(f"第 {i + 1} 次点击后检测到 main_adventure，已回到主界面")
-                return True
-        self.log_warning(f"{int(max_clicks * interval)} 秒内未检测到 main_adventure")
+
+            box = self._safe_find_one(JINGYAN_FEATURE)
+            if box is None:
+                if clicks:
+                    self.log_info(f"{JINGYAN_FEATURE} 已消失（共点了 {clicks} 次），结算结束")
+                else:
+                    self.log_info(f"没看到 {JINGYAN_FEATURE}，直接进入退出流程")
+                break
+
+            clicks += 1
+            self.click_box(box)
+            self.log_debug(f"第 {clicks} 次点击 {JINGYAN_FEATURE} ({box.x}, {box.y})")
+            self.sleep(JINGYAN_CLICK_INTERVAL)
+        else:
+            self.log_warning(f"点了 {JINGYAN_MAX_CLICKS} 次 {JINGYAN_FEATURE} 仍未消失")
+
+        # 2. 点 popu_cancel 退出到主页面
+        if self.safe_click_feature('popu_cancel', threshold=0.8, time_out=5):
+            self.log_info("已点击 popu_cancel")
+            self.sleep(1.0)
+        else:
+            self.log_warning("没找到 popu_cancel")
+
+        # 3. 确认真的回到主页面（popu_cancel 可能不止一层）
+        if self.find_one('main_adventure', threshold=0.8):
+            self.log_info("已回到主界面")
+            return True
+
+        self.log_info("还没到主界面，继续用关闭按钮逐层退出...")
+        if self.back_to_main(max_rounds=20, interval=0.8):
+            return True
+        self.log_warning("未能回到主界面")
         return False
 
     # ================= OCR 工具 =================

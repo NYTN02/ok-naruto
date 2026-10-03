@@ -221,6 +221,18 @@
             "file_name": "images/0.png",
             "width": 1600,
             "height": 900
+        },
+        {
+            "id": 41,
+            "file_name": "images/2.png",
+            "width": 1600,
+            "height": 900
+        },
+        {
+            "id": 42,
+            "file_name": "images/1.png",
+            "width": 1600,
+            "height": 900
         }
     ],
     "annotations": [
@@ -1380,6 +1392,32 @@
             ],
             "area": 2484,
             "iscrowd": 0
+        },
+        {
+            "id": 90,
+            "image_id": 41,
+            "category_id": 90,
+            "bbox": [
+                599,
+                408,
+                129,
+                75
+            ],
+            "area": 9675,
+            "iscrowd": 0
+        },
+        {
+            "id": 91,
+            "image_id": 42,
+            "category_id": 91,
+            "bbox": [
+                622,
+                128,
+                340,
+                199
+            ],
+            "area": 67660,
+            "iscrowd": 0
         }
     ],
     "categories": [
@@ -1826,6 +1864,16 @@
         {
             "id": 89,
             "name": "guide_listbottom",
+            "supercategory": ""
+        },
+        {
+            "id": 90,
+            "name": "coinorign_jingyan",
+            "supercategory": ""
+        },
+        {
+            "id": 91,
+            "name": "teamfight_win",
             "supercategory": ""
         }
     ]

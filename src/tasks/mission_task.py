@@ -6,10 +6,9 @@ GUIDE_ITEM = 'guide_mission'
 GUIDE_TEXT = '任务集会所'   # 指南列表里条目的文字（OCR 识别）
 GUIDE_GO = 'guide_missiongo'
 
-# 没能接取到任务时，回主页面重新进入任务集会所再试的次数。
-# 「没能接取」包含三种：没进得去界面 / 一次都没点到「接取」 / 点到了但没走到「出发」。
-# 用户明确要求「没点到接取」也要重进重试，所以 empty 不再是终止条件。
-MAX_ACCEPT_RETRY = 2
+# 接取任务的尝试次数：首次 + 重试 2 次 = 最多进任务集会所 3 次。
+# 每次失败都先回主页面再重新进入（用户指定的流程）。
+ACCEPT_ATTEMPTS = 3
 
 # 一轮里最多尝试接取几个任务
 MAX_ACCEPT_LOOP = 15
@@ -28,60 +27,84 @@ class MissionTask(GuideNavTask):
         self._last_round_had_attempt = False
 
     def run(self):
+        """任务集会所：先只领奖励，再专门进去接取任务（最多 3 次）。
+
+        用户指定的流程：
+
+            第 1 次进入：**只领取奖励**，然后退回主页面
+            第 2 次进入：开始接取任务          ← 接取尝试 1
+              没接取到 -> 回主页面再进入       ← 接取尝试 2
+              没接取到 -> 回主页面再进入       ← 接取尝试 3
+              还是没接取到 -> 判定为异常，跳过任务集会所
+
+        这样把"领奖"和"接取"分成两次访问，避免接取失败时把领奖也一起赔进去；
+        接取最多试 3 次（首次 + 重试 2 次）。
+        """
         self.log_info("开始任务集会所...")
 
-        for attempt in range(MAX_ACCEPT_RETRY + 1):
-            if attempt:
-                self.log_warning(f"===== 重新进入任务集会所（第 {attempt} 次重试）=====")
+        # ---------- 阶段 1：只领取奖励 ----------
+        if not self.enter_mission_hall():
+            self.log_error("第一次进入任务集会所失败，任务终止")
+            return
+        self.log_info("第 1 次进入：只领取奖励")
+        self.collect_all_rewards()
+        self.exit_mission_hall()
 
-            status, accepted = self.run_once()
-
-            if status == 'ok':
-                self.log_info(f"本次成功接取 {accepted} 个任务")
-                self.log_info("任务集会所任务结束")
+        # ---------- 阶段 2：专门接取任务，最多 ACCEPT_ATTEMPTS 次 ----------
+        for attempt in range(1, ACCEPT_ATTEMPTS + 1):
+            if self.should_stop('任务集会所'):
                 return
 
-            # 没能接取到任务 —— 三种情况都算：
-            #   no_entry  没进得去任务集会所界面（指南入口那步失败）
-            #   empty     进去了但一次都没点到「接取」
-            #   failed    点到了「接取」但没走到「出发」
-            reason = {
-                'no_entry': "没能进入任务集会所界面",
-                'empty': "进入了界面但一次都没点到「接取」",
-                'failed': "点到了「接取」但没走到「出发」",
-            }.get(status, status)
-            self.log_warning(f"没有成功接取任务：{reason}")
+            if not self.enter_mission_hall():
+                self.log_warning(f"第 {attempt} 次进入任务集会所失败")
+            else:
+                self.log_info(f"第 {attempt}/{ACCEPT_ATTEMPTS} 次进入：开始接取任务")
+                accepted, ok = self.accept_missions()
+                self.exit_mission_hall()
 
-            if attempt < MAX_ACCEPT_RETRY:
-                # 回主页面，下一轮 run_once() 会重新走指南进来
-                self.log_warning(f"回主页面后重新进入任务集会所再试"
-                                 f"（{attempt + 1}/{MAX_ACCEPT_RETRY}）")
+                if accepted:
+                    self.log_info(f"成功接取 {accepted} 个任务")
+                    self.log_info("任务集会所任务结束")
+                    return
+                if not ok:
+                    self.log_warning(f"第 {attempt} 次没有接取到任务")
+                else:
+                    self.log_warning(f"第 {attempt} 次没有可接取的任务")
+
+            if attempt < ACCEPT_ATTEMPTS:
+                self.log_warning(f"回主页面后重新进入再试（{attempt}/{ACCEPT_ATTEMPTS}）")
                 self.back_to_main(max_rounds=15, interval=0.8)
                 self.sleep(1.0)
-            else:
-                self.log_warning(f"重试 {MAX_ACCEPT_RETRY} 次仍未接取到任务，本次跳过")
-                self.back_to_main(max_rounds=15, interval=0.8, log=False)
 
-    def run_once(self):
-        """跑一轮任务集会所。
+        self.log_error(f"连续 {ACCEPT_ATTEMPTS} 次都没接取到任务，判定为异常，跳过任务集会所")
+        self.back_to_main(max_rounds=15, interval=0.8, log=False)
 
-        :return: ``(status, accepted)``
-                 status: 'no_entry'  没找到入口
-                         'empty'     本来就没有可接取的任务（正常，不算失败）
-                         'failed'    点了「接取」但没走到「出发」
-                         'ok'        至少成功接取了一个
-        """
-        self._last_round_had_attempt = False
-
-        # 1. 走「指南」进入任务集会所
+    # ------------------------------------------------------------------
+    # 步骤拆分
+    # ------------------------------------------------------------------
+    def enter_mission_hall(self):
+        """走「指南」进入任务集会所界面。"""
         if not self.enter_guide(GUIDE_TEXT, GUIDE_GO, item_feature=GUIDE_ITEM):
-            return 'no_entry', 0
-        self.sleep(1.2)  # 等待界面加载
+            return False
+        self.sleep(1.2)   # 等界面加载
+        return True
 
-        # 2. 先领所有"可领取"
-        self.collect_all_rewards()
+    def exit_mission_hall(self):
+        """点 popu_cancel 退出任务集会所界面。"""
+        self.sleep(0.5)
+        if self.wait_click_feature('popu_cancel', threshold=0.8, time_out=3):
+            self.log_info("已退出任务集会所")
+        else:
+            self.log_warning("未找到退出按钮")
 
-        # 3. 循环接取任务
+    def accept_missions(self):
+        """在任务集会所界面里接取任务。
+
+        :return: ``(accepted, ok)``
+                 accepted 成功接取的数量
+                 ok       True 表示流程正常走完（包括"确实没有可接取的"）；
+                         False 表示中途失败（接取点了却没走到出发）
+        """
         accepted = 0
         for loop_count in range(1, MAX_ACCEPT_LOOP + 1):
             if self.should_stop('任务集会所接取'):
@@ -91,27 +114,17 @@ class MissionTask(GuideNavTask):
 
             if result == NO_MORE:
                 self.log_info("没有更多'接取'，结束循环")
-                break
+                return accepted, True
 
             if result == FAILED:
                 self.log_warning("这一次接取没有成功（没走到'出发'）")
-                break
+                return accepted, False
 
             accepted += 1
             # 回到集会所后，可能又出现新的"可领取"
             self.collect_all_rewards()
 
-        # 4. 退出任务集会所
-        self.sleep(0.5)
-        if self.wait_click_feature('popu_cancel', threshold=0.8, time_out=3):
-            self.log_info("已退出任务集会所")
-        else:
-            self.log_warning("未找到退出按钮")
-
-        if accepted:
-            return 'ok', accepted
-        # 一次没接上：区分"本来就没得接"和"接了但失败"
-        return ('failed' if self._last_round_had_attempt else 'empty'), 0
+        return accepted, True
 
     def accept_one_mission(self):
         """尝试接取一个任务，返回 NO_MORE / FAILED / ACCEPTED。

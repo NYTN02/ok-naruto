@@ -29,6 +29,12 @@ REWARD_SCROLL_MAX = 8               # 单向最多滑几次
 REWARD_ENTRY_TIMEOUT = 5.0
 REWARD_OPEN_WAIT = 1.8
 REWARD_ITEM_TIMEOUT = 3.0
+# 点条目正下方「立刻前往」的超时。
+# ⚠️ 这个常量曾经漏定义过（函数体里用了 REWARD_GO_TIMEOUT，常量块里却只有
+#    REWARD_ITEM_TIMEOUT），导致组织祈福一跑到这一步就 NameError。
+#    这类错误只在运行时才暴露，静态检查抓不到 —— 现在由
+#    tests/TestRelease.py 的 test_task_modules_have_no_undefined_constants 守住。
+REWARD_GO_TIMEOUT = 5.0
 
 
 class TeamPrayTask(GuideNavTask):
