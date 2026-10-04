@@ -1,10 +1,10 @@
 from ok import BaseTask
-from src.tasks.page_nav import ADVENTURE_ENTRY_REL, MAIN_PAGE_FEATURE
+from src.tasks.page_nav import MAIN_PAGE_FEATURE, PageNavTask
 import re
 import time
 
 
-class JingYingTask(BaseTask):
+class JingYingTask(PageNavTask):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.name = "精英副本"
@@ -14,10 +14,10 @@ class JingYingTask(BaseTask):
         self.log_info("开始精英副本...")
 
         try:
-            # 1. 点击主界面冒险入口 —— 固定坐标 rel(0.909, 0.869)
-            #    原来是用模板匹配 main_adventure 再滑动查找，位置本来就固定，
-            #    没必要匹配；而且每个人主页背景不同，模板匹配常失败。
-            self.click_relative(*ADVENTURE_ENTRY_REL)
+            # 1. 进「冒险」：检测主页面标志(main_guide) -> 点冒险入口 rel(0.909, 0.869)
+            #    原来是 swipe_find('main_adventure', click=True) 一个模板干两件事：
+            #    检测不稳（主页背景各不相同）、滑动查找对固定位置的按钮也没必要。
+            self.click_adventure_entry()
             self.sleep(1.5)
 
             # 2. 点击精英副本

@@ -17,10 +17,13 @@ import time
 # 主页面的标志性元素
 # 主界面右下角「冒险」入口的固定点击位置（相对坐标）。
 #
-# 原来这里是用模板匹配 main_adventure 找的，两个问题：
-#   * 每个玩家主页背景不同，模板匹配不稳
-#   * 那个按钮位置本来就是固定的，还去滑动查找纯属多余
-# 实测直接点固定位置更可靠，所以统一成这个常量。
+# 原来"检测主页面标志"和"点击冒险入口"都是用 main_adventure 一个模板做的：
+#     swipe_find('main_adventure', max_swipes=4, click=True)
+# 现在拆成两件事，各自更可靠：
+#     检测主页面标志  ->  main_guide（见下面的 MAIN_PAGE_FEATURE）
+#     点击冒险入口    ->  这个常量 rel(0.909, 0.869)
+# 为什么点击不用模板：位置本来就固定；而且每个玩家主页背景不同，模板匹配不稳，
+# 对一个固定位置的按钮做横向滑动查找更是多余。
 ADVENTURE_ENTRY_REL = (0.909, 0.869)
 
 # 主页面判据：**认「指南」入口 (main_guide)**。
@@ -266,11 +269,29 @@ class PageNavTask(BaseTask):
             return True
         return False
 
-    def click_adventure_entry(self):
-        """点击主界面右下角的「冒险」入口（固定坐标，不做模板匹配）。
+    def click_adventure_entry(self, ensure_main=True):
+        """进入「冒险」：先检测主页面标志，再点右下角冒险入口。
 
-        见 ADVENTURE_ENTRY_REL：位置固定，模板匹配反而容易被主页背景干扰。
+        这两件事原来是**一个** main_adventure 模板同时干的::
+
+            swipe_find('main_adventure', max_swipes=4, click=True)   # 检测 + 点击
+
+        现在拆开，各自用更可靠的方式：
+
+            检测：主页面标志改用 ``main_guide``（MAIN_PAGE_FEATURE）
+            点击：冒险入口位置固定，直接点 rel(0.909, 0.869)，
+                  不做模板匹配、也不做滑动查找
+                  （位置固定的按钮去滑动查找纯属多余，而且每个人主页背景不同，
+                    模板匹配常失败）
+
+        ``ensure_main=True`` 时，若当前没看到主页面标志，会先尝试退回主页面再点。
         """
+        if ensure_main and not self.is_main_page():
+            self.log_info(f"没看到主页面标志 {MAIN_PAGE_FEATURE}，先尝试退回主页面")
+            self.back_to_main(max_rounds=10, interval=0.8, log=False)
+        else:
+            self.log_info(f"检测到主页面标志 {MAIN_PAGE_FEATURE}")
+
         rel_x, rel_y = ADVENTURE_ENTRY_REL
         x, y = int(self.width * rel_x), int(self.height * rel_y)
         self.log_info(f"点击冒险入口 ({x}, {y}) rel{ADVENTURE_ENTRY_REL}")

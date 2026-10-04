@@ -1022,6 +1022,44 @@ class TestWaitClickSafety(unittest.TestCase):
         self.assertIn('click_coinpray()', run_body)
 
 
+def _code_only(src):
+    """去掉**注释和文档字符串**后的代码文本。
+
+    这些"不许再出现某某写法"的检查必须只看代码：注释和文档字符串里经常会
+    引用旧写法来说明改动原因（比如"原来是 swipe_find('main_adventure', ...)"），
+    那是**有价值的说明**，不该被判成违规。
+    一开始只去了注释，结果自己的文档字符串又被报了一次 —— 所以这里用 ast
+    把 docstring 的行范围也找出来排除掉。
+    """
+    lines = src.splitlines()
+    drop = set()
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        tree = None
+    if tree is not None:
+        for node in ast.walk(tree):
+            body = getattr(node, 'body', None)
+            if not isinstance(body, list) or not body:
+                continue
+            first = body[0]
+            if (isinstance(first, ast.Expr)
+                    and isinstance(first.value, ast.Constant)
+                    and isinstance(first.value.value, str)):
+                end = getattr(first, 'end_lineno', first.lineno) or first.lineno
+                drop.update(range(first.lineno, end + 1))
+    out = []
+    for i, line in enumerate(lines, 1):
+        if i in drop:
+            continue
+        if line.lstrip().startswith('#'):
+            continue
+        if '#' in line:
+            line = line.split('#', 1)[0]
+        out.append(line)
+    return '\n'.join(out)
+
+
 class TestMainPageAndWaitFeature(unittest.TestCase):
     """主页面判据统一用 main_guide；等元素要用 wait_feature（不能只查一次）。"""
 
@@ -1037,15 +1075,13 @@ class TestMainPageAndWaitFeature(unittest.TestCase):
         offenders = []
         for path in sorted(glob.glob(os.path.join('src', '**', '*.py'), recursive=True)):
             with open(path, encoding='utf-8') as f:
-                for i, line in enumerate(f, 1):
-                    if 'main_adventure' not in line:
-                        continue
-                    stripped = line.strip()
-                    if stripped.startswith('#'):
-                        continue          # 注释里为了说明改动原因提到它是允许的
-                    offenders.append(f'{path}:{i}: {stripped}')
+                code = _code_only(f.read())
+            for i, line in enumerate(code.splitlines(), 1):
+                # 只查"当成模板名用"的写法，也就是**带引号**的 main_adventure
+                if re.search(r"""['"]main_adventure['"]""", line):
+                    offenders.append(f'{path}:{i}: {line.strip()}')
         self.assertEqual([], offenders,
-                         '这些地方还在硬编码 main_adventure:\n  ' + '\n  '.join(offenders))
+                         '这些地方还在把 main_adventure 当模板名用:\n  ' + '\n  '.join(offenders))
 
     def test_wait_feature_waits_instead_of_checking_once(self):
         """小队突袭必须**等** teamfight_teamhelp 出现，不能只查一次。
@@ -1087,17 +1123,29 @@ class TestMainPageAndWaitFeature(unittest.TestCase):
         self.assertEqual((0.909, 0.869), ADVENTURE_ENTRY_REL)
         self.assertTrue(callable(getattr(PageNavTask, 'click_adventure_entry', None)),
                         'PageNavTask 缺少 click_adventure_entry')
+        with open('src/tasks/page_nav.py', encoding='utf-8') as f:
+            nav = f.read()
+        body = nav.split('def click_adventure_entry')[1].split('def wait_feature')[0]
+        # 结构必须是"先检测主页面标志，再点固定坐标"
+        self.assertIn('is_main_page()', body,
+                      'click_adventure_entry 没有先检测主页面标志')
+        self.assertIn('ADVENTURE_ENTRY_REL', body,
+                      'click_adventure_entry 没有点固定坐标')
         with open('src/tasks/jingying_task.py', encoding='utf-8') as f:
-            src = f.read()
-        self.assertIn('ADVENTURE_ENTRY_REL', src, 'jingying 没有用固定坐标点冒险入口')
+            src = _code_only(f.read())
+        self.assertIn('click_adventure_entry()', src,
+                      'jingying 没有走 click_adventure_entry()')
         self.assertNotIn('swipe_find(MAIN_PAGE_FEATURE', src,
                          '还在用模板匹配 + 滑动查找去点冒险入口')
-        # 全项目都不许再用模板匹配点冒险入口
+        self.assertNotIn("swipe_find('main_adventure'", src,
+                         '还在用模板匹配去点冒险入口')
+        # 全项目都不许再用模板匹配点冒险入口（只看代码，注释/docstring 不算）
         offenders = []
         for path in sorted(glob.glob(os.path.join('src', '**', '*.py'), recursive=True)):
             with open(path, encoding='utf-8') as f:
-                if "swipe_find('main_adventure'" in f.read():
-                    offenders.append(path)
+                code = _code_only(f.read())
+            if "swipe_find('main_adventure'" in code or 'swipe_find("main_adventure"' in code:
+                offenders.append(path)
         self.assertEqual([], offenders,
                          '这些文件还在用模板匹配点冒险入口: ' + ', '.join(offenders))
 
