@@ -15,6 +15,10 @@ TEAMFIGHT_WIN_INTERVAL = 1.0    # 两次点击之间的间隔
 # 就再点一次 teamfight_teamhelp 再来一场）
 MAX_ROUNDS = 2
 
+# 打完一场后等 teamfight_teamhelp 出现的时间（秒）。
+# 结算界面到小队突袭界面切换需要一点时间，等太短会误判成"打不了了"。
+TEAMHELP_WAIT = 5.0
+
 # 「邀请」列表上滑时的 x 坐标（相对屏幕宽度）。
 # 取很小的值贴着屏幕左边缘滑：这里不会压到邀请卡片本身，
 # 拖动更稳（换成 0.20 之类的中间位置容易误触卡片或拖不动列表）。
@@ -90,9 +94,13 @@ class TeamFightTask(GuideNavTask):
                 self.cleanup_exit()
                 return
 
-            # 打完回到小队突袭界面：看还能不能继续
-            if self._safe_find_one('teamfight_teamhelp') is None:
-                self.log_warning("没有 teamfight_teamhelp，无法继续，退出到主页面")
+            # 打完回到小队突袭界面：看还能不能继续。
+            # ⚠️ 必须**等一会儿**再下结论 —— 结算点完到界面切回来之间有间隔，
+            #    只查一次会误判成"打不了了"，于是只打一场就退出（实测踩过）。
+            if self.wait_feature('teamfight_teamhelp',
+                                 time_out=TEAMHELP_WAIT, interval=0.5) is None:
+                self.log_warning(f"等了 {TEAMHELP_WAIT} 秒也没看到 teamfight_teamhelp，"
+                                 f"无法继续，退出到主页面")
                 self.cleanup_exit()
                 return
 

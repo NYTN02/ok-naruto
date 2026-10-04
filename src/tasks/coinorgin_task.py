@@ -1,10 +1,11 @@
+from src.tasks.page_nav import MAIN_PAGE_FEATURE
 """丰饶之间（经验副本）自动化。
 
 流程（和最初的设计保持一致）：
     主界面点「指南」进入丰饶之间 -> 点「挑战」进入战斗
     -> 识别战斗布局后，用点击技能按钮的方式打输出
     -> **OCR 看到「经验」（结算界面）就停止战斗循环**
-    -> **持续点击屏幕中央跳过结算，直到出现 main_adventure 回到主界面**
+    -> **持续点击屏幕中央跳过结算，直到回到主界面**
 
 进入方式变化：原来是在主界面滑动找 ``main_coinorign`` 图标，但每个玩家的
 主页面背景不同、经常匹配不到；改成走「指南」列表（见 guide_nav.py），
@@ -94,7 +95,7 @@ class CoinOrginTask(CombatTask):
         self.log_info("已进入战斗，开始点击式技能循环（持续到出现'经验'）")
         self.battle_loop()
 
-        # 5. 持续点击屏幕中央跳过结算，直到出现 main_adventure
+        # 5. 持续点击屏幕中央跳过结算，直到回到主界面
         self.return_to_main()
 
         self.log_info("丰饶之间任务结束")
@@ -171,7 +172,7 @@ class CoinOrginTask(CombatTask):
         直接用 PageNavTask.back_to_main()：不在主页时依次尝试
         popu_cancel / reward_cancel / gacha_cancel / clean_cancel /
         activity_cancel / team_cancel / friend_cancel / coin_cancel，
-        点到哪个算哪个，循环直到出现 main_adventure。
+        点到哪个算哪个，循环直到回到主界面（is_main_page()）。
 
         这里保留一个同名的薄封装，方便本任务里语义化调用，也便于以后单独调整
         重试次数而不影响其它任务。
@@ -186,7 +187,7 @@ class CoinOrginTask(CombatTask):
           1. 识别到 coinorign_jingyan 之后，不断点它推进结算，直到它消失
           2. 点 popu_cancel 退出到主页面
 
-        （原来是每 1 秒点一次屏幕中央直到出现 main_adventure；改成盯
+        （原来是每 1 秒点一次屏幕中央直到回到主界面；改成盯
           coinorign_jingyan 更明确，也不会误点到别的按钮。）
         """
         self.log_info(f"开始结算：不断点击 {JINGYAN_FEATURE} ...")
@@ -218,7 +219,7 @@ class CoinOrginTask(CombatTask):
             self.log_warning("没找到 popu_cancel")
 
         # 3. 确认真的回到主页面（popu_cancel 可能不止一层）
-        if self.find_one('main_adventure', threshold=0.8):
+        if self.is_main_page():   # 主页面判据统一走 MAIN_PAGE_FEATURE(main_guide)
             self.log_info("已回到主界面")
             return True
 

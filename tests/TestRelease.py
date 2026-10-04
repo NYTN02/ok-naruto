@@ -1022,5 +1022,60 @@ class TestWaitClickSafety(unittest.TestCase):
         self.assertIn('click_coinpray()', run_body)
 
 
+class TestMainPageAndWaitFeature(unittest.TestCase):
+    """主页面判据统一用 main_guide；等元素要用 wait_feature（不能只查一次）。"""
+
+    def test_main_page_criterion_is_main_guide(self):
+        """判断"是否在主页面"用 main_guide，不再用 main_adventure。
+
+        main_guide 在主页面上的位置/图案更稳定，实测比 main_adventure 可靠。
+        这个常量是全局的（is_main_page / back_to_main 都走它），
+        所以不允许别处再硬编码 main_adventure。
+        """
+        from src.tasks.page_nav import MAIN_PAGE_FEATURE
+        self.assertEqual('main_guide', MAIN_PAGE_FEATURE)
+        offenders = []
+        for path in sorted(glob.glob(os.path.join('src', '**', '*.py'), recursive=True)):
+            with open(path, encoding='utf-8') as f:
+                for i, line in enumerate(f, 1):
+                    if 'main_adventure' not in line:
+                        continue
+                    stripped = line.strip()
+                    if stripped.startswith('#'):
+                        continue          # 注释里为了说明改动原因提到它是允许的
+                    offenders.append(f'{path}:{i}: {stripped}')
+        self.assertEqual([], offenders,
+                         '这些地方还在硬编码 main_adventure:\n  ' + '\n  '.join(offenders))
+
+    def test_wait_feature_waits_instead_of_checking_once(self):
+        """小队突袭必须**等** teamfight_teamhelp 出现，不能只查一次。
+
+        踩过的坑：结算点完立刻查一次 teamfight_teamhelp，界面还没切回来就被判成
+        "没有 teamfight_teamhelp，无法继续"，于是只打了一场就退出。
+        """
+        import src.tasks.teamfight_task as tf
+        from src.tasks.page_nav import PageNavTask
+        self.assertTrue(callable(getattr(PageNavTask, 'wait_feature', None)),
+                        'PageNavTask 缺少 wait_feature')
+        self.assertGreaterEqual(tf.TEAMHELP_WAIT, 5.0,
+                                f'等 teamfight_teamhelp 只给了 {tf.TEAMHELP_WAIT} 秒，太短')
+        with open('src/tasks/teamfight_task.py', encoding='utf-8') as f:
+            src = f.read()
+        run_body = src.split('def claim_rewards')[0]
+        # 判断能否继续时必须是 wait_feature（带等待），不能是 _safe_find_one（只查一次）
+        self.assertIn("wait_feature('teamfight_teamhelp'", run_body,
+                      '没有用 wait_feature 等 teamfight_teamhelp')
+        self.assertNotIn("_safe_find_one('teamfight_teamhelp') is None", run_body,
+                         '还在用只查一次的方式判断 teamfight_teamhelp')
+
+    def test_wait_feature_returns_none_on_timeout(self):
+        """wait_feature 超时要返回 None，不能抛异常。"""
+        with open('src/tasks/page_nav.py', encoding='utf-8') as f:
+            src = f.read()
+        body = src.split('def wait_feature(')[1].split('def wait_click(')[0]
+        self.assertIn('return None', body, 'wait_feature 超时应该返回 None')
+        self.assertIn('should_stop(', body, 'wait_feature 没有响应停止')
+
+
 if __name__ == '__main__':
     unittest.main()

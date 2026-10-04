@@ -3,7 +3,7 @@
 用途：不管现在停在哪个子页面，运行这个任务都会一路点关闭按钮退回到主页面。
 
 判定逻辑（见 src/tasks/page_nav.py）：
-    * 能匹配到 main_adventure -> 已经在主页，什么都不做
+    * 能匹配到 MAIN_PAGE_FEATURE（main_guide）-> 已经在主页，什么都不做
     * 否则 -> 在当前画面依次找
       popu_cancel / reward_cancel / gacha_cancel / clean_cancel /
       activity_cancel / team_cancel / friend_cancel / coin_cancel，
