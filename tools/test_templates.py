@@ -1,4 +1,4 @@
-"""离线验证模板匹配：main_adventure 与各 cancel 按钮在实机画面上的匹配情况。
+"""离线验证模板匹配：MAIN_PAGE_FEATURE 与各 cancel 按钮在实机画面上的匹配情况。
 
 直接用 ok 的 FeatureSet 对截图做模板匹配，不依赖 ok-script GUI。
 

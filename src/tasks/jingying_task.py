@@ -1,5 +1,5 @@
 from ok import BaseTask
-from src.tasks.page_nav import MAIN_PAGE_FEATURE
+from src.tasks.page_nav import ADVENTURE_ENTRY_REL, MAIN_PAGE_FEATURE
 import re
 import time
 
@@ -14,11 +14,10 @@ class JingYingTask(BaseTask):
         self.log_info("开始精英副本...")
 
         try:
-            # 1. 点击主界面冒险入口
-            box = self.swipe_find(MAIN_PAGE_FEATURE, max_swipes=4, click=True)
-            if not box:
-                self.log_error("未找到冒险入口，任务终止")
-                return
+            # 1. 点击主界面冒险入口 —— 固定坐标 rel(0.909, 0.869)
+            #    原来是用模板匹配 main_adventure 再滑动查找，位置本来就固定，
+            #    没必要匹配；而且每个人主页背景不同，模板匹配常失败。
+            self.click_relative(*ADVENTURE_ENTRY_REL)
             self.sleep(1.5)
 
             # 2. 点击精英副本

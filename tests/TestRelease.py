@@ -1077,5 +1077,30 @@ class TestMainPageAndWaitFeature(unittest.TestCase):
         self.assertIn('should_stop(', body, 'wait_feature 没有响应停止')
 
 
+    def test_adventure_entry_uses_fixed_position(self):
+        """点击主界面「冒险」入口用固定坐标 rel(0.909, 0.869)，不再模板匹配。
+
+        位置本来就固定，还去模板匹配 + 横向滑动查找纯属多余；
+        而且每个人主页背景不同，模板匹配常失败。
+        """
+        from src.tasks.page_nav import ADVENTURE_ENTRY_REL, PageNavTask
+        self.assertEqual((0.909, 0.869), ADVENTURE_ENTRY_REL)
+        self.assertTrue(callable(getattr(PageNavTask, 'click_adventure_entry', None)),
+                        'PageNavTask 缺少 click_adventure_entry')
+        with open('src/tasks/jingying_task.py', encoding='utf-8') as f:
+            src = f.read()
+        self.assertIn('ADVENTURE_ENTRY_REL', src, 'jingying 没有用固定坐标点冒险入口')
+        self.assertNotIn('swipe_find(MAIN_PAGE_FEATURE', src,
+                         '还在用模板匹配 + 滑动查找去点冒险入口')
+        # 全项目都不许再用模板匹配点冒险入口
+        offenders = []
+        for path in sorted(glob.glob(os.path.join('src', '**', '*.py'), recursive=True)):
+            with open(path, encoding='utf-8') as f:
+                if "swipe_find('main_adventure'" in f.read():
+                    offenders.append(path)
+        self.assertEqual([], offenders,
+                         '这些文件还在用模板匹配点冒险入口: ' + ', '.join(offenders))
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -15,6 +15,14 @@ import re
 import time
 
 # 主页面的标志性元素
+# 主界面右下角「冒险」入口的固定点击位置（相对坐标）。
+#
+# 原来这里是用模板匹配 main_adventure 找的，两个问题：
+#   * 每个玩家主页背景不同，模板匹配不稳
+#   * 那个按钮位置本来就是固定的，还去滑动查找纯属多余
+# 实测直接点固定位置更可靠，所以统一成这个常量。
+ADVENTURE_ENTRY_REL = (0.909, 0.869)
+
 # 主页面判据：**认「指南」入口 (main_guide)**。
 #
 # 原来认的是 main_adventure（主界面右下角"冒险"入口），改动原因：
@@ -257,6 +265,17 @@ class PageNavTask(BaseTask):
             self.log_warning(f"收到停止指令，中断{('：' + where) if where else ''}")
             return True
         return False
+
+    def click_adventure_entry(self):
+        """点击主界面右下角的「冒险」入口（固定坐标，不做模板匹配）。
+
+        见 ADVENTURE_ENTRY_REL：位置固定，模板匹配反而容易被主页背景干扰。
+        """
+        rel_x, rel_y = ADVENTURE_ENTRY_REL
+        x, y = int(self.width * rel_x), int(self.height * rel_y)
+        self.log_info(f"点击冒险入口 ({x}, {y}) rel{ADVENTURE_ENTRY_REL}")
+        self.click(x, y)
+        return True
 
     def wait_feature(self, feature, time_out=5.0, interval=0.5):
         """等一个元素出现；出现返回它的 Box，超时返回 None（不抛异常）。

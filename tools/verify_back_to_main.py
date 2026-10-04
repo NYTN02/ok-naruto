@@ -1,11 +1,11 @@
 """实机验证「回到主页面」：打开一个子面板，确认能自动退出来。
 
 步骤：
-  1. 确认当前在主页（main_adventure 命中）
+  1. 确认当前在主页（MAIN_PAGE_FEATURE 命中）
   2. 点开一个子面板
-  3. 确认 main_adventure 不再命中，且 page_nav 能识别出某个 cancel 按钮
+  3. 确认 MAIN_PAGE_FEATURE 不再命中，且 page_nav 能识别出某个 cancel 按钮
   4. 按 back_to_main 的逻辑点掉 cancel
-  5. 确认 main_adventure 重新命中
+  5. 确认 MAIN_PAGE_FEATURE 重新命中
 
 用法:
     .venv\\Scripts\\python.exe tools\\verify_back_to_main.py [x y]
