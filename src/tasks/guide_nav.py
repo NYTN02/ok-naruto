@@ -105,6 +105,24 @@ GUIDE_SCROLL_UP_TO_Y = 0.777        # 往上找：终点
 GUIDE_SCROLL_INNER_FROM_Y = 0.700
 GUIDE_SCROLL_INNER_TO_Y = 0.400
 
+# ---------------------------------------------------------------------------
+# 条目只可能出现在左侧列表这一列里。
+#
+# ⚠️ 为什么必须限定区域：``self.ocr()`` 是**全屏**识别的，
+#    而「指南」界面右侧有详情/预览面板，里面也会出现条目名称。
+#    用户日志实证（2026-10-13）：
+#        23:40:18 [指南] OCR 认到「积分赛」  (245, 508)    x=0.096  左侧 ✓
+#        23:49:54 [指南] OCR 认到「丰饶之间」(1805, 744)   x=0.705  右侧 ✗
+#        23:50:33 ERROR 没能通过指南进入丰饶之间，任务终止
+#    也就是它把右侧面板里的同名文字当成了列表条目，点过去当然没反应。
+#
+#    右侧显示什么内容不由我们控制（跟游戏活动 / 玩家进度有关），
+#    所以会出现"第一天能用、后来突然不行"—— 不是程序变了，是界面内容变了。
+# ---------------------------------------------------------------------------
+GUIDE_LIST_HIT_X_MAX = 0.35          # 条目中心 x 超过这个值就认为不是列表条目
+GUIDE_LIST_HIT_Y_MIN = 0.10
+GUIDE_LIST_HIT_Y_MAX = 0.92
+
 GUIDE_SCROLL_SETTLE = 0.35      # 拖到终点后再按住多久才松开
 
 # ---------------------------------------------------------------------------
@@ -455,18 +473,40 @@ class GuideNavTask(PageNavTask):
         return self._sweep_entry(item_pattern, templates, to_bottom=False, max_swipes=max_swipes)
 
     def find_entry_on_screen(self, item_pattern, templates):
-        """在当前画面里找条目：先 OCR 文字，再退回模板。"""
+        """在当前画面里找条目：先 OCR 文字，再退回模板。
+
+        **只在左侧列表区域里认**（见 GUIDE_LIST_HIT_*）：OCR 是全屏的，
+        右侧详情/预览面板里的同名文字会被误认成条目，点过去没反应 ——
+        用户日志里就是这么失败的。
+        """
         try:
             boxes = self.ocr(match=[item_pattern])
         except Exception as e:
             self.log_debug(f"OCR 找条目出错: {e}")
             boxes = None
         if boxes:
-            box = boxes[0] if isinstance(boxes, list) else boxes
-            if all(hasattr(box, a) for a in ('x', 'y')):
-                self.log_info(f"[指南] OCR 认到「{item_pattern.pattern}」"
-                              f"({box.x}, {box.y})")
-                return box
+            if not isinstance(boxes, list):
+                boxes = [boxes]
+            width = getattr(self, 'width', 0) or 1
+            height = getattr(self, 'height', 0) or 1
+            rejected = []
+            for box in boxes:
+                if not all(hasattr(box, a) for a in ('x', 'y', 'width', 'height')):
+                    continue
+                cx = (box.x + box.width / 2) / width
+                cy = (box.y + box.height / 2) / height
+                if (cx <= GUIDE_LIST_HIT_X_MAX
+                        and GUIDE_LIST_HIT_Y_MIN <= cy <= GUIDE_LIST_HIT_Y_MAX):
+                    self.log_info(f"[指南] OCR 认到「{item_pattern.pattern}」"
+                                  f"({box.x}, {box.y}) 在列表区域内")
+                    return box
+                rejected.append((box.x, box.y, round(cx, 3)))
+            if rejected:
+                # 认到了但都不在列表里 —— 明确说出来，否则用户只看到"找不到"，
+                # 完全无法判断是"文字没认出来"还是"认到了但位置不对"
+                self.log_warning(f"[指南] OCR 认到「{item_pattern.pattern}」但都不在"
+                                 f"左侧列表区域内（x 上限 {GUIDE_LIST_HIT_X_MAX}）："
+                                 f"{rejected}，忽略")
         for name in templates:
             box = self._safe_find_one(name)
             if box is not None:

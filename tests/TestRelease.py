@@ -1688,5 +1688,62 @@ class TestTaskConfigTypes(unittest.TestCase):
                             f'{module_name} 里没有 {class_name}')
 
 
+class TestGuideEntryRegion(unittest.TestCase):
+    """指南条目必须在**左侧列表区域内**才算找到。
+
+    踩过的坑（用户日志 2026-10-13 实证）：self.ocr() 是全屏识别，
+    而「指南」界面右侧有详情/预览面板，里面也会出现条目名称：
+        23:40:18 OCR 认到「积分赛」  (245, 508)    x=0.096  左侧 -> 成功进入
+        23:49:54 OCR 认到「丰饶之间」(1805, 744)   x=0.705  右侧 -> 点过去没反应
+        23:50:33 ERROR 没能通过指南进入丰饶之间，任务终止
+    右侧显示什么由游戏内容决定（活动/进度），所以会"第一天能用、后来突然不行"。
+    """
+
+    def test_region_constants(self):
+        from src.tasks.guide_nav import (
+            GUIDE_LIST_HIT_X_MAX,
+            GUIDE_LIST_HIT_Y_MAX,
+            GUIDE_LIST_HIT_Y_MIN,
+        )
+        # x 上限必须能挡住右侧面板（日志里失败那个是 0.705）
+        self.assertLess(GUIDE_LIST_HIT_X_MAX, 0.5,
+                        'x 上限太大，会放进右侧面板里的同名文字')
+        # 但必须放过列表里的条目（日志里成功的是 0.055 ~ 0.096）
+        self.assertGreater(GUIDE_LIST_HIT_X_MAX, 0.15)
+        self.assertLess(GUIDE_LIST_HIT_Y_MIN, GUIDE_LIST_HIT_Y_MAX)
+
+    def test_real_log_positions_are_classified_correctly(self):
+        """★ 回归：拿日志里真实出现过的 5 个坐标验证。"""
+        from src.tasks.guide_nav import (
+            GUIDE_LIST_HIT_X_MAX,
+            GUIDE_LIST_HIT_Y_MAX,
+            GUIDE_LIST_HIT_Y_MIN,
+        )
+        W, H = 2560, 1440      # 用户的分辨率
+
+        def accepted(x, y):
+            cx, cy = x / W, y / H
+            return (cx <= GUIDE_LIST_HIT_X_MAX
+                    and GUIDE_LIST_HIT_Y_MIN <= cy <= GUIDE_LIST_HIT_Y_MAX)
+
+        # 日志里"成功进入"的位置，必须接受
+        for x, y in ((245, 508), (147, 707), (141, 701), (243, 630), (192, 831)):
+            self.assertTrue(accepted(x, y), f'({x},{y}) 是列表里的条目，不该被拒绝')
+        # 日志里"点到右侧导致失败"的位置，必须拒绝
+        self.assertFalse(accepted(1805, 744),
+                         '(1805,744) 在屏幕右侧，就是它导致"没能通过指南进入"')
+
+    def test_find_entry_filters_by_region(self):
+        with open('src/tasks/guide_nav.py', encoding='utf-8') as f:
+            src = f.read()
+        body = src.split('def find_entry_on_screen')[1].split('def _sweep_entry')[0]
+        self.assertIn('GUIDE_LIST_HIT_X_MAX', body, '没有按 x 区域过滤')
+        self.assertIn('GUIDE_LIST_HIT_Y_MIN', body, '没有按 y 区域过滤')
+        # 认到但不在区域里时要明确说出来，否则用户只看到"找不到"，无从判断
+        self.assertIn('都不在', body, '没有把"认到但位置不对"明确报出来')
+        # 仍然是"先 OCR 再模板兜底"
+        self.assertLess(body.index('self.ocr('), body.index('_safe_find_one('))
+
+
 if __name__ == '__main__':
     unittest.main()
