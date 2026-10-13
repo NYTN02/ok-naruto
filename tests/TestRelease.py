@@ -637,39 +637,53 @@ class TestGuideEntry(unittest.TestCase):
         self.assertNotIn("swipe_find('main_team'", src, '还在用旧的 main_team 入口')
 
     def test_share_retry_flow(self):
-        """每日分享：点分享入口最多 3 次（各等 1 秒看 share_qq），不出现就回主页面重试 2 次。
+        """每日分享：进分享页面 -> 点 personal_share 最多 3 次（各等 1 秒看 share_qq）
+        -> 不出现就回主页面重试 2 次。
 
-        一键日常跑的就是同一个 ShareTask，所以这里实现了，
-        「一键日常里的每日分享」也就一起有了同样的行为。
+        注意**内层循环是围绕 personal_share 的**，分享入口一轮只点一次
+        （之前实现错成"点 3 次分享入口"了）。
+        一键日常跑的就是同一个 ShareTask，所以行为一致。
         """
         from src.tasks.page_nav import PageNavTask
         from src.tasks.share_task import (
-            SHARE_ENTRY_CLICKS,
-            SHARE_ENTRY_WAIT,
+            PERSONAL_SHARE_CLICKS,
+            PERSONAL_SHARE_WAIT,
+            SHARE_ENTRY_REL,
             SHARE_RETRY,
             ShareTask,
         )
-        self.assertEqual(3, SHARE_ENTRY_CLICKS, '每轮应点 3 次分享入口')
-        self.assertEqual(1.0, SHARE_ENTRY_WAIT, '每次点完应等 1 秒再检测 share_qq')
+        self.assertEqual(3, PERSONAL_SHARE_CLICKS, '每轮应点 3 次 personal_share')
+        self.assertEqual(1.0, PERSONAL_SHARE_WAIT, '每次点完应等 1 秒再检测 share_qq')
         self.assertEqual(2, SHARE_RETRY, '回主页面重试次数应为 2')
-        # 重试需要"退回主页面"的能力
+        self.assertEqual((0.068, 0.068), SHARE_ENTRY_REL)
         self.assertTrue(issubclass(ShareTask, PageNavTask),
                         'ShareTask 必须继承 PageNavTask 才能 back_to_main')
         for name in ('run_once', 'finish_share', 'should_stop'):
             self.assertTrue(callable(getattr(ShareTask, name, None)), f'缺少 {name}')
+
         with open('src/tasks/share_task.py', encoding='utf-8') as f:
             src = f.read()
         run_body = src.split('def run_once')[0]
         self.assertIn('range(SHARE_RETRY + 1)', run_body, '没有按 SHARE_RETRY 重试')
         self.assertIn('back_to_main(', run_body, '重试前没有退回主页面')
         self.assertIn('should_stop(', run_body, '没有响应停止')
+
         once = src.split('def run_once')[1].split('def finish_share')[0]
-        self.assertIn('range(1, SHARE_ENTRY_CLICKS + 1)', once, '内层没有点 3 次入口')
-        self.assertIn('SHARE_ENTRY_WAIT', once, '点完没有等 1 秒')
-        # 判据是 share_qq
-        self.assertIn("'share_qq'", once, '没有检测 share_qq')
-        self.assertLess(once.index("'share_qq'"), once.index("'personal_share'"),
-                        '应该先看 share_qq 再看 personal_share（用户指定的判据优先）')
+        # 分享入口只点一次（不在循环里）
+        entry_pos = once.index('click_relative(*SHARE_ENTRY_REL)')
+        loop_pos = once.index('range(1, PERSONAL_SHARE_CLICKS + 1)')
+        self.assertLess(entry_pos, loop_pos, '分享入口必须在 personal_share 循环之前')
+        self.assertNotIn('for', once[:entry_pos], '分享入口不能在循环里点')
+        # 循环体里点的是 personal_share、等 1 秒、再查 share_qq（顺序要对）
+        body = once[loop_pos:]
+        self.assertIn("safe_click_feature('personal_share'", body, '循环里没点 personal_share')
+        self.assertIn('PERSONAL_SHARE_WAIT', body, '点完没等 1 秒')
+        self.assertIn("safe_click_feature('share_qq'", body, '没有检测 share_qq')
+        self.assertLess(body.index('PERSONAL_SHARE_WAIT'),
+                        body.index("safe_click_feature('share_qq'"),
+                        '必须先等 1 秒再检测 share_qq')
+        # 出现 share_qq 后要按老流程收尾
+        self.assertIn('finish_share()', body, '点中 share_qq 后没有收尾')
 
     def test_guide_scroll_stays_inside_list(self):
         """滑动的起止点必须落在列表范围内。
