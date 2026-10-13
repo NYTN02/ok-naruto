@@ -650,15 +650,19 @@ class TestGuideEntry(unittest.TestCase):
             PERSONAL_SHARE_WAIT,
             SHARE_ENTRY_REL,
             SHARE_RETRY,
+            SHARE_TARGETS,
             ShareTask,
         )
         self.assertEqual(3, PERSONAL_SHARE_CLICKS, '每轮应点 3 次 personal_share')
-        self.assertEqual(1.0, PERSONAL_SHARE_WAIT, '每次点完应等 1 秒再检测 share_qq')
+        self.assertEqual(1.0, PERSONAL_SHARE_WAIT, '每次点完应等 1 秒再检测分享渠道')
         self.assertEqual(2, SHARE_RETRY, '回主页面重试次数应为 2')
         self.assertEqual((0.068, 0.068), SHARE_ENTRY_REL)
+        # 分享渠道：QQ 和微信都要支持
+        self.assertIn('share_qq', SHARE_TARGETS, '没有 QQ 分享')
+        self.assertIn('share_wechat', SHARE_TARGETS, '没有微信分享')
         self.assertTrue(issubclass(ShareTask, PageNavTask),
                         'ShareTask 必须继承 PageNavTask 才能 back_to_main')
-        for name in ('run_once', 'finish_share', 'should_stop'):
+        for name in ('run_once', 'finish_share', 'click_share_target', 'should_stop'):
             self.assertTrue(callable(getattr(ShareTask, name, None)), f'缺少 {name}')
 
         with open('src/tasks/share_task.py', encoding='utf-8') as f:
@@ -674,16 +678,32 @@ class TestGuideEntry(unittest.TestCase):
         loop_pos = once.index('range(1, PERSONAL_SHARE_CLICKS + 1)')
         self.assertLess(entry_pos, loop_pos, '分享入口必须在 personal_share 循环之前')
         self.assertNotIn('for', once[:entry_pos], '分享入口不能在循环里点')
-        # 循环体里点的是 personal_share、等 1 秒、再查 share_qq（顺序要对）
+        # 循环体里点的是 personal_share、等 1 秒、再查分享渠道（顺序要对）
         body = once[loop_pos:]
         self.assertIn("safe_click_feature('personal_share'", body, '循环里没点 personal_share')
         self.assertIn('PERSONAL_SHARE_WAIT', body, '点完没等 1 秒')
-        self.assertIn("safe_click_feature('share_qq'", body, '没有检测 share_qq')
+        self.assertIn('click_share_target(', body, '没有检测分享渠道')
         self.assertLess(body.index('PERSONAL_SHARE_WAIT'),
-                        body.index("safe_click_feature('share_qq'"),
-                        '必须先等 1 秒再检测 share_qq')
-        # 出现 share_qq 后要按老流程收尾
-        self.assertIn('finish_share()', body, '点中 share_qq 后没有收尾')
+                        body.index('click_share_target('),
+                        '必须先等 1 秒再检测分享渠道')
+        self.assertIn('finish_share()', body, '点中分享渠道后没有收尾')
+
+    def test_share_target_covers_qq_and_wechat(self):
+        """点分享渠道时两个都要查，不能先把 QQ 的超时等满再看微信。"""
+        from src.tasks.share_task import SHARE_TARGETS, ShareTask
+        self.assertEqual(('share_qq', 'share_wechat'), SHARE_TARGETS)
+        with open('src/tasks/share_task.py', encoding='utf-8') as f:
+            src = f.read()
+        body = src.split('def click_share_target')[1].split('def finish_share')[0]
+        # 循环里遍历所有渠道
+        self.assertIn('for name in SHARE_TARGETS', body, '没有遍历所有分享渠道')
+        self.assertIn('self.click_box(', body, '没有点击命中的渠道')
+        self.assertIn('should_stop(', body, 'click_share_target 没有响应停止')
+        # 两个渠道模板都必须真实存在（名字写错会抛 FeatureSet not found）
+        coco = json.load(open(COCO_PATH, encoding='utf-8'))
+        names = {c['name'] for c in coco['categories']}
+        for target in SHARE_TARGETS:
+            self.assertIn(target, names, f'模板 {target} 不存在于标注里')
 
     def test_guide_scroll_stays_inside_list(self):
         """滑动的起止点必须落在列表范围内。
