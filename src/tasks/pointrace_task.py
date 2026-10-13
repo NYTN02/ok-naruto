@@ -5,6 +5,7 @@ import re
 # 每个玩家主页背景不同，经常匹配不到）
 GUIDE_ITEM = 'guide_pointrace'
 GUIDE_TEXT = '积分赛'   # 指南列表里条目的文字（OCR 识别）
+REWARD_ITEM_TEXT = '积分赛'   # 走「奖励」时在每日任务里识别的文字
 GUIDE_GO = 'guide_pointracego'
 
 # 挑战没成功时额外重试的次数（1 表示最多打两次）
@@ -30,6 +31,8 @@ class PointRaceTask(GuideNavTask):
         super().__init__(*args, **kwargs)
         self.name = "积分赛"
         self.description = "自动领取积分赛奖励并进行挑战"  # 可选
+        self.add_entry_mode_config(REWARD_ITEM_TEXT)
+
 
     def run(self):
         self.log_info("开始积分赛...")
@@ -42,7 +45,9 @@ class PointRaceTask(GuideNavTask):
             if attempt:
                 self.log_warning(f"===== 重新进入积分赛（第 {attempt} 次重试）=====")
 
-            if not self.enter_guide(GUIDE_TEXT, GUIDE_GO, item_feature=GUIDE_ITEM):
+            if not self.enter_by_mode(GUIDE_TEXT, GUIDE_GO,
+                                          reward_item_text=REWARD_ITEM_TEXT,
+                                          item_feature=GUIDE_ITEM):
                 self.log_warning("没能通过指南进入积分赛")
             else:
                 self.sleep(1.2)

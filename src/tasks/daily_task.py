@@ -24,6 +24,7 @@ from src.tasks.gacha_task import GachaTask
 from src.tasks.jingying_task import JingYingTask
 from src.tasks.mission_task import MissionTask
 from src.tasks.noodle_task import NoodleTask
+from src.tasks.guide_nav import ENTRY_MODE_GUIDE, ENTRY_MODE_KEY, ENTRY_MODE_REWARD
 from src.tasks.page_nav import PageNavTask
 from src.tasks.pointrace_task import PointRaceTask
 from src.tasks.qiandao_task import QianDaoTask
@@ -87,13 +88,20 @@ class DailyTask(PageNavTask):
         self.default_config.update({
             "执行任务": list(TASK_LABELS),
             "任务间回到主页面": True,
+            ENTRY_MODE_KEY: ENTRY_MODE_GUIDE,
         })
         self.config_description.update({
             "执行任务": "勾选本次要跑的任务。执行顺序固定（按日常习惯排序），与勾选顺序无关。",
             "任务间回到主页面": "每个任务开始前先确认已经在主页面，保证起始状态一致（推荐开启）。",
+            ENTRY_MODE_KEY: (f"统一指定子任务走哪条路进入：{ENTRY_MODE_GUIDE} 走游戏里的"
+                             f"「指南」列表（条目多，要上下滑找）；{ENTRY_MODE_REWARD} 走"
+                             f"「奖励 → 每日任务」（卡片少，找得快）。"
+                             f"只对支持的任务生效 —— 排行榜在每日任务里没有，仍然走指南。"),
         })
         self.config_type.update({
             "执行任务": {"type": "multi_selection", "options": list(TASK_LABELS)},
+            ENTRY_MODE_KEY: {'type': 'drop_down',
+                             'options': [ENTRY_MODE_GUIDE, ENTRY_MODE_REWARD]},
         })
 
     # ------------------------------------------------------------------
@@ -208,6 +216,10 @@ class DailyTask(PageNavTask):
         # 判断"一键日常被停了没有"（子任务自己从未被单独启用过，
         # 不能拿它自己的 _enabled 当判据）。见 page_nav.stop_requested()。
         task._parent_task = self
+        # 把「进入方式」透传给支持它的子任务。一键日常是总开关，
+        # 所以这里直接覆盖子任务自己的选择 —— 用户只该在这一个地方配。
+        if task.supports_entry_mode():
+            task.config[ENTRY_MODE_KEY] = self.entry_mode()
         try:
             task.run()
             return True

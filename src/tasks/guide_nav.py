@@ -181,8 +181,31 @@ GUIDE_GO_WAIT = 1.8
 # 「立刻前往」这类入口文字的匹配（用正则做包含匹配，避免 OCR 多字少字就失配）
 DAILY_TASK_PATTERN = re.compile(r'每日任务')
 
-# 指南条目点开后的「前往」按钮文字。模板认不到时用它兜底。
+# 「前往」按钮文字。模板认不到时用它兜底。
 GO_TEXT_PATTERN = re.compile(r'前往')
+
+# ---------------------------------------------------------------------------
+# 进入方式：「忍界指引」（走指南列表）还是「奖励」（走每日任务）
+#
+# 两条路各有适用场景：指南列表条目标注稳定但有 20+ 项、要上下滑动找；
+# 每日任务是横向的少数几张卡，找起来快，而且每张卡自带「立刻前往」。
+# 所以做成任务级选项，一键日常也可以统一指定。
+#
+# 注意：**不是每个任务都在每日任务里**（排行榜就没有），
+# 所以只有确实存在的任务才把「奖励」加进选项中。
+# ---------------------------------------------------------------------------
+ENTRY_MODE_KEY = '进入方式'
+ENTRY_MODE_GUIDE = '忍界指引'
+ENTRY_MODE_REWARD = '奖励'
+
+# 走「奖励」（每日任务）时需要的东西
+REWARD_ENTRY = 'main_reward'          # 主页面上的每日任务/奖励入口
+GO_TEXT = '立刻前往'                   # 条目正下方的按钮文字
+REWARD_SCROLL_X, REWARD_SCROLL_Y = 0.5, 0.5
+REWARD_SCROLL_DISTANCE = 0.35         # 每次左右拖动的距离（相对屏幕宽度）
+REWARD_SCROLL_MAX = 8                 # 单向最多滑几次
+REWARD_ENTRY_TIMEOUT = 5.0
+REWARD_OPEN_WAIT = 1.8
 
 
 class GuideNavTask(PageNavTask):
@@ -391,6 +414,154 @@ class GuideNavTask(PageNavTask):
             self.sleep(1.2)
         else:
             self.log_warning(f"没找到 {GUIDE_CANCEL}，改用通用方式退回主页面")
+        if not self.is_main_page():
+            self.back_to_main(max_rounds=12, interval=0.8, log=False)
+
+    # ------------------------------------------------------------------
+    # 进入方式：忍界指引 / 奖励
+    # ------------------------------------------------------------------
+    def add_entry_mode_config(self, reward_item_text=None):
+        """登记「进入方式」选项。
+
+        :param reward_item_text: 走「奖励」（每日任务）时用来识别条目的文字。
+            传 None 表示这个任务在每日任务里**没有**，那就不提供「奖励」选项
+            （比如排行榜）—— 免得用户选了以后永远进不去。
+        """
+        options = [ENTRY_MODE_GUIDE]
+        if reward_item_text:
+            options.append(ENTRY_MODE_REWARD)
+        self.default_config[ENTRY_MODE_KEY] = ENTRY_MODE_GUIDE
+        self.config_type[ENTRY_MODE_KEY] = {'type': 'drop_down', 'options': options}
+        self.config_description[ENTRY_MODE_KEY] = (
+            f'{ENTRY_MODE_GUIDE}：走游戏里的「指南」列表（条目多，要上下滑找）；'
+            f'{ENTRY_MODE_REWARD}：走「奖励 → 每日任务」（卡片少，找得快）'
+            if len(options) > 1 else
+            '这个任务在每日任务里没有，只能走「指南」')
+
+    def supports_entry_mode(self):
+        """走「指南」的任务支持选择进入方式（见 ENTRY_MODE_*）。"""
+        return True
+
+    def entry_mode(self):
+        return self.config.get(ENTRY_MODE_KEY, ENTRY_MODE_GUIDE)
+
+    def enter_by_mode(self, guide_text, guide_go, reward_item_text=None,
+                      item_feature=None):
+        """按「进入方式」选项决定走哪条路进入玩法。"""
+        mode = self.entry_mode()
+        if mode == ENTRY_MODE_REWARD and reward_item_text:
+            self.log_info(f"进入方式：{ENTRY_MODE_REWARD}（每日任务）")
+            return self.enter_reward(reward_item_text)
+        self.log_info(f"进入方式：{ENTRY_MODE_GUIDE}（指南列表）")
+        return self.enter_guide(guide_text, guide_go, item_feature=item_feature)
+
+    def enter_reward(self, item_text, max_swipes=REWARD_SCROLL_MAX):
+        """走「奖励 → 每日任务」进入玩法。
+
+        流程（和组织祈福一样）::
+
+            点 main_reward
+              -> OCR 点「每日任务」
+              -> 横向左右滑动找条目（OCR 认 item_text）
+              -> 点条目**正下方**的「立刻前往」
+
+        每日任务里的条目是横向排列的卡片，所以是左右滑而不是上下滑。
+        """
+        if not self.is_main_page():
+            self.log_info("当前不在主页面，先退回主页面")
+            self.back_to_main(max_rounds=12, interval=0.8, log=False)
+
+        if not self.click_feature(REWARD_ENTRY, time_out=REWARD_ENTRY_TIMEOUT):
+            self.log_error(f"未找到 {REWARD_ENTRY}，无法走「奖励」进入「{item_text}」")
+            return False
+        self.sleep(REWARD_OPEN_WAIT)
+
+        if not self.click_text(DAILY_TASK_PATTERN, time_out=REWARD_ENTRY_TIMEOUT):
+            self.log_error("没找到「每日任务」，无法走「奖励」进入")
+            return False
+        self.sleep(REWARD_OPEN_WAIT)
+
+        box = self.find_reward_item(item_text, max_swipes)
+        if box is None:
+            self.log_warning(f"每日任务里左右滑遍都没找到「{item_text}」")
+            self.exit_reward()
+            return False
+
+        if not self.click_below(box, GO_TEXT_PATTERN, time_out=REWARD_ENTRY_TIMEOUT):
+            self.log_warning(f"没找到「{item_text}」正下方的「{GO_TEXT}」")
+            self.exit_reward()
+            return False
+        self.sleep(REWARD_OPEN_WAIT)
+        self.log_info(f"已通过「奖励」进入「{item_text}」")
+        return True
+
+    def find_reward_item(self, item_text, max_swipes=REWARD_SCROLL_MAX):
+        """在每日任务列表里左右滑动找条目，返回 Box 或 None。
+
+        先往左拖（看右边的内容），再往右拖（看回左边）。
+        """
+        pattern = re.compile(re.escape(item_text))
+        box = self.find_reward_item_on_screen(pattern)
+        if box is not None:
+            self.log_info(f"[每日任务] 当前画面已看到「{item_text}」")
+            return box
+
+        for i in range(1, max_swipes + 1):
+            if self.should_stop('每日任务滑动'):
+                return None
+            self.log_info(f"[每日任务] 向左滑 {i}/{max_swipes} 次找「{item_text}」")
+            self.scroll_reward(direction=1)
+            box = self.find_reward_item_on_screen(pattern)
+            if box is not None:
+                self.log_info(f"[每日任务] 向左滑 {i} 次后找到「{item_text}」")
+                return box
+
+        for i in range(1, max_swipes * 2 + 1):
+            if self.should_stop('每日任务滑动'):
+                return None
+            self.log_info(f"[每日任务] 向右滑 {i}/{max_swipes * 2} 次找「{item_text}」")
+            self.scroll_reward(direction=-1)
+            box = self.find_reward_item_on_screen(pattern)
+            if box is not None:
+                self.log_info(f"[每日任务] 向右滑 {i} 次后找到「{item_text}」")
+                return box
+        return None
+
+    def find_reward_item_on_screen(self, pattern):
+        """当前画面 OCR 找每日任务条目。"""
+        try:
+            boxes = self.ocr(match=[pattern])
+        except Exception as e:
+            self.log_debug(f"OCR 找「{pattern.pattern}」出错: {e}")
+            boxes = None
+        if boxes:
+            if not isinstance(boxes, list):
+                boxes = [boxes]
+            for box in boxes:
+                if all(hasattr(box, a) for a in ('x', 'y', 'width', 'height')):
+                    self.log_info(f"[每日任务] OCR 认到「{pattern.pattern}」"
+                                  f"({box.x}, {box.y})")
+                    return box
+        return None
+
+    def scroll_reward(self, direction=1):
+        """每日任务列表左右滑一次。
+
+        ``direction=1`` 往左拖（看右边的内容），``-1`` 往右拖（看回左边）。
+        """
+        x_from = int(self.width * REWARD_SCROLL_X)
+        y = int(self.height * REWARD_SCROLL_Y)
+        delta = int(self.width * REWARD_SCROLL_DISTANCE) * (1 if direction > 0 else -1)
+        self.gesture(x_from, y, x_from - delta, y,
+                     duration=self.default_swipe_duration())
+
+    def exit_reward(self):
+        """点 reward_cancel / popu_cancel 退出每日任务界面。"""
+        for name in ('reward_cancel', 'popu_cancel'):
+            if self.click_feature(name, time_out=2.0):
+                self.log_info(f"已点击 {name} 退出每日任务")
+                self.sleep(1.0)
+                return
         if not self.is_main_page():
             self.back_to_main(max_rounds=12, interval=0.8, log=False)
 

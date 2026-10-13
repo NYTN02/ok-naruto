@@ -27,6 +27,7 @@ from src.tasks.combat_task import CombatTask
 # 进入方式：走「指南」列表
 GUIDE_ITEM = 'guide_coinorign'
 GUIDE_TEXT = '丰饶之间'   # 指南列表里条目的文字（OCR 识别）
+REWARD_ITEM_TEXT = '丰饶'   # 走「奖励」时在每日任务里识别的文字
 GUIDE_GO = 'guide_coinorigngo'
 
 # 结算判据：识别到 coinorign_jingyan（结算界面上的「经验」元素）就认为这局打完了。
@@ -57,12 +58,16 @@ class CoinOrginTask(CombatTask):
         super().__init__(*args, **kwargs)
         self.name = "丰饶之间"
         self.description = "自动刷丰饶之间经验副本"
+        self.add_entry_mode_config(REWARD_ITEM_TEXT)
+
 
     def run(self):
         self.log_info("开始丰饶之间...")
 
         # 1. 走「指南」进入丰饶之间
-        if not self.enter_guide(GUIDE_TEXT, GUIDE_GO, item_feature=GUIDE_ITEM):
+        if not self.enter_by_mode(GUIDE_TEXT, GUIDE_GO,
+                                          reward_item_text=REWARD_ITEM_TEXT,
+                                          item_feature=GUIDE_ITEM):
             self.log_error("没能通过指南进入丰饶之间，任务终止")
             return
         self.sleep(1.5)

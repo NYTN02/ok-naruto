@@ -213,6 +213,14 @@ class PageNavTask(BaseTask):
         self.back_to_main(max_rounds=15, interval=0.8)
         return True
 
+    def supports_entry_mode(self):
+        """这个任务是否支持选择「进入方式」（忍界指引 / 奖励）。
+
+        基类一律返回 False；只有走「指南」的那些任务（GuideNavTask）才支持。
+        一键日常靠它判断要不要把总开关透传给子任务。
+        """
+        return False
+
     # ------------------------------------------------------------------
     # 停止判断
     # ------------------------------------------------------------------

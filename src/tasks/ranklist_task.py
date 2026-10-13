@@ -12,12 +12,15 @@ class RankListTask(GuideNavTask):
         super().__init__(*args, **kwargs)
         self.name = "排行榜点赞"
         self.description = "自动点赞排行榜（第一个）"  # 可选
+        # 排行榜在「每日任务」里没有，所以只登记「忍界指引」一个选项
+        self.add_entry_mode_config()
+
 
     def run(self):
         self.log_info("开始排行榜点赞...")
 
         # 1. 走「指南」进入排行榜
-        if not self.enter_guide(GUIDE_TEXT, GUIDE_GO, item_feature=GUIDE_ITEM):
+        if not self.enter_by_mode(GUIDE_TEXT, GUIDE_GO, item_feature=GUIDE_ITEM):
             self.log_error("没能通过指南进入排行榜，任务终止")
             return
         self.sleep(1.5)

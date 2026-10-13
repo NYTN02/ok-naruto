@@ -5,6 +5,7 @@ import time
 # 进入方式：走「指南」列表
 GUIDE_ITEM = 'guide_teamfight'
 GUIDE_TEXT = '小队突袭'   # 指南列表里条目的文字（OCR 识别）
+REWARD_ITEM_TEXT = '小队突袭'   # 走「奖励」时在每日任务里识别的文字
 GUIDE_GO = 'guide_teamfightgo'
 
 # 战斗结算：检测到 teamfight_win 就不断点击它推进结算，直到它消失
@@ -34,6 +35,8 @@ class TeamFightTask(GuideNavTask):
         super().__init__(*args, **kwargs)
         self.name = "小队突袭"
         self.description = "自动进行小队突袭并领取贡献"  # 可选
+        self.add_entry_mode_config(REWARD_ITEM_TEXT)
+
 
     def run(self):
         """小队突袭：打一场 -> 看还能不能再打 -> 能就再来一场，最多 MAX_ROUNDS 场。
@@ -57,7 +60,9 @@ class TeamFightTask(GuideNavTask):
 
         # ========== 原步骤 1~4（只在最开始做一次）==========
         # 1. 走「指南」进入小队突袭
-        if not self.enter_guide(GUIDE_TEXT, GUIDE_GO, item_feature=GUIDE_ITEM):
+        if not self.enter_by_mode(GUIDE_TEXT, GUIDE_GO,
+                                          reward_item_text=REWARD_ITEM_TEXT,
+                                          item_feature=GUIDE_ITEM):
             self.log_error("没能通过指南进入小队突袭，任务终止")
             return
         self.sleep(1.5)

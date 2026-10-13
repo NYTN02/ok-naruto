@@ -4,6 +4,7 @@ from src.tasks.guide_nav import GuideNavTask
 # 但每个玩家主页背景不同、经常匹配不到；指南列表位置固定得多）
 GUIDE_ITEM = 'guide_mission'
 GUIDE_TEXT = '任务集会所'   # 指南列表里条目的文字（OCR 识别）
+REWARD_ITEM_TEXT = '集会所'   # 走「奖励」时在每日任务里识别的文字
 GUIDE_GO = 'guide_missiongo'
 
 # 接取任务的尝试次数：首次 + 重试 2 次 = 最多进任务集会所 3 次。
@@ -24,6 +25,8 @@ class MissionTask(GuideNavTask):
         super().__init__(*args, **kwargs)
         self.name = "任务集会所"
         self.description = "自动领取奖励和接取任务"  # 可选
+        self.add_entry_mode_config(REWARD_ITEM_TEXT)
+
         self._last_round_had_attempt = False
 
     def run(self):
@@ -84,7 +87,9 @@ class MissionTask(GuideNavTask):
     # ------------------------------------------------------------------
     def enter_mission_hall(self):
         """走「指南」进入任务集会所界面。"""
-        if not self.enter_guide(GUIDE_TEXT, GUIDE_GO, item_feature=GUIDE_ITEM):
+        if not self.enter_by_mode(GUIDE_TEXT, GUIDE_GO,
+                                          reward_item_text=REWARD_ITEM_TEXT,
+                                          item_feature=GUIDE_ITEM):
             return False
         self.sleep(1.2)   # 等界面加载
         return True

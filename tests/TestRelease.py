@@ -607,7 +607,7 @@ class TestGuideEntry(unittest.TestCase):
                             f'{cls.__name__} 必须继承 GuideNavTask 才能用 enter_guide')
             with open(f'src/tasks/{mod_name}.py', encoding='utf-8') as f:
                 src = f.read()
-            self.assertIn('enter_guide(', src,
+            self.assertIn('enter_by_mode(', src,
                           f'{mod_name} 没有调用 enter_guide()，入口没真正改过来')
             # 旧的主页图标入口不应该还在用
             self.assertNotIn(f"swipe_find('main_", src,
@@ -758,8 +758,16 @@ class TestGuideEntry(unittest.TestCase):
                              f'{mod_name} 的 OCR 目标文字应为「{text}」')
             with open(f'src/tasks/{mod_name}.py', encoding='utf-8') as f:
                 src = f.read()
-            self.assertIn('enter_guide(GUIDE_TEXT', src,
-                          f'{mod_name} 没有用 OCR 文字调 enter_guide')
+            self.assertIn('enter_by_mode(GUIDE_TEXT', src,
+                          f'{mod_name} 没有用 OCR 文字调 enter_by_mode')
+            # 有「奖励」入口的任务才要求传 reward_item_text；
+            # 排行榜在每日任务里没有，就不该有它
+            if 'REWARD_ITEM_TEXT' in src:
+                self.assertIn('reward_item_text=REWARD_ITEM_TEXT', src,
+                              f'{mod_name} 没有把「奖励」的识别文字传进去')
+            else:
+                self.assertNotIn('reward_item_text=', src,
+                                 f'{mod_name} 每日任务里没有它，不该传 reward_item_text')
             self.assertIn('item_feature=GUIDE_ITEM', src,
                           f'{mod_name} 没有把模板作为兜底传进去')
         # enter_guide 内部要先用 OCR 找条目，找不到才退回模板
