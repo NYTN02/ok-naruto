@@ -195,6 +195,7 @@ def apply():
         return True
     try:
         _patch_nemu_ipc_dll()
+        _patch_nemu_ipc_connect()
         _patch_keep_alive_check()
         _patched = True
         logger.info('[MuMu兼容] 已启用新版 MuMu（15+）的原生 IPC 路径适配')
@@ -256,6 +257,56 @@ def _patch_nemu_ipc_dll():
 
     patched_init._mumu_compat = True
     nemu_ipc.NemuIpcImpl.__init__ = patched_init
+
+
+def _patch_nemu_ipc_connect():
+    """让 ``nemu_connect`` 在文件夹层级不对时换其它候选根再试。
+
+    为什么需要这一层：``nemu_connect(nemu_folder, instance_id)`` 期望的是
+    **安装根**（源码注释写的是 ``E:/ProgramFiles/MuMuPlayer-12.0``），
+    而 ok-script 传进来的是 ``base_folder()`` = ``dirname(dirname(emulator.path))``。
+    在 nx 布局（``nx_main`` + ``nx_device/<版本>``）下这个值可能是
+    ``<root>``，也可能是偏深两层的 ``<root>/nx_device/<版本>`` ——
+    取决于 ok-script 把哪个可执行文件填进了 ``emulator.path``。
+    层级不对时 DLL 也许照样能找到，但 connect 会失败（表现就是"原生截图无响应"）。
+
+    ⚠️ 这一段是**推测性兜底，未实机验证**：MuMu 15 上原生 IPC 到底卡在哪一步
+    （找不到 DLL / connect 失败 / capture 失败）目前无法确定。
+    所以只在原 connect 抛错之后才换根重试，跑得通就说明是这个原因，
+    跑不通也不会比原来更差。
+    """
+    from ok.capture.adb import nemu_ipc
+
+    original_connect = nemu_ipc.NemuIpcImpl.connect
+    if getattr(original_connect, '_mumu_compat', False):
+        return
+
+    def patched_connect(self, on_thread=True):
+        try:
+            return original_connect(self, on_thread)
+        except Exception as first_error:
+            tried = self.nemu_folder
+            alternatives = [r for r in candidate_roots(self.nemu_folder)
+                            if _norm(r) != _norm(tried)]
+            if not alternatives:
+                raise
+            logger.warning(
+                f'[MuMu兼容] 用 {tried} 连接 IPC 失败（{first_error}），'
+                f'改用其它候选根重试: {alternatives}')
+            for root in alternatives:
+                self.nemu_folder = root
+                self.connect_id = 0
+                try:
+                    result = original_connect(self, on_thread)
+                    logger.info(f'[MuMu兼容] 用候选根 {root} 连接成功')
+                    return result
+                except Exception as e:
+                    logger.warning(f'[MuMu兼容] 候选根 {root} 连接也失败: {e}')
+            self.nemu_folder = tried
+            raise
+
+    patched_connect._mumu_compat = True
+    nemu_ipc.NemuIpcImpl.connect = patched_connect
 
 
 def _patch_keep_alive_check():

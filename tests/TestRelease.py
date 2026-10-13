@@ -1222,6 +1222,27 @@ class TestMuMuCompat(unittest.TestCase):
             self.assertNotIn('"' + letter + ':', code,
                              f'代码里出现了写死的盘符 {letter}:')
 
+    def test_connect_patch_retries_with_other_roots(self):
+        """connect 失败时换其它候选根重试。
+
+        nemu_connect 期望的是"安装根"，而 ok-script 传的是 base_folder()，
+        在 nx 布局（nx_main + nx_device/<版本>）下可能是 <root>，也可能是偏深两层的
+        <root>/nx_device/<版本>。层级不对时 DLL 也许照样能找到，但 connect 会失败
+        —— 表现就是"原生截图无响应"。这一段是推测性兜底，未实机验证。
+        """
+        from src.mumu_compat import apply
+        apply()
+        from ok.capture.adb.nemu_ipc import NemuIpcImpl
+        self.assertTrue(getattr(NemuIpcImpl.connect, '_mumu_compat', False),
+                        'connect 没打补丁')
+        with open('src/mumu_compat.py', encoding='utf-8') as f:
+            body = f.read().split('def patched_connect')[1].split(
+                'patched_connect._mumu_compat')[0]
+        self.assertIn('original_connect(self', body, 'connect 补丁没有先走原逻辑')
+        self.assertIn('candidate_roots(', body, 'connect 失败后没有换候选根重试')
+        self.assertIn('self.nemu_folder = tried', body,
+                      '全部失败后没有把 nemu_folder 复位（会污染后续调用）')
+
     def test_find_ipc_dlls_matches_mumu12_layout(self):
         """老的 MuMu 12 结构也要能命中（补丁不能把 12 弄坏）。"""
         from src.mumu_compat import find_ipc_dlls
