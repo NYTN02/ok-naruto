@@ -66,8 +66,13 @@ class DebugGuideScrollTask(GuideNavTask):
             '滑动间隔(秒)': 1.5,
         })
         self.config_type.update({
-            '测试方向': {'type': 'drop_down'},
-            '起止线': {'type': 'drop_down'},
+            # ⚠️ drop_down 必须带 options —— ok-script 的 ConfigItemFactory 里是
+            # `LabelAndDropDown(config_desc, the_type['options'], ...)`，少了这个键
+            # 会抛 KeyError: 'options'。而任务配置是在**主窗口初始化**时构建的，
+            # 所以一个坏的 config_type 会让**整个程序起不来**（不是只坏这个任务）。
+            # 已经加用例 test_config_types_are_valid 守住这类错误。
+            '测试方向': {'type': 'drop_down', 'options': list(DIRECTIONS)},
+            '起止线': {'type': 'drop_down', 'options': list(LINES)},
         })
         self.config_description.update({
             '测试方向': '单独测哪个方向；「两个都测」会先测往下、再测往上',

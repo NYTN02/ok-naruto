@@ -1578,5 +1578,109 @@ class TestReleaseNotesHygiene(unittest.TestCase):
             self.assertEqual([], hits, f'正文文案里出现了内部措辞 {bad}: {hits}')
 
 
+class TestTaskConfigTypes(unittest.TestCase):
+    """每个任务的 config_type 声明必须合法。
+
+    踩过的坑：调试任务里写了 {'type': 'drop_down'} 却忘了 options ——
+    ok-script 的 ConfigItemFactory 是 `LabelAndDropDown(desc, the_type['options'], ...)`，
+    于是抛 KeyError: 'options'。而任务配置是在**主窗口初始化**时构建的，
+    所以这一个字段的问题会让**整个程序启动失败**（用户实测：测试版起不来）。
+    """
+
+    # 各 type 必需的键。
+    # 只列我有把握的两种 —— 别的 type 写法不止一种，列进来只会误报：
+    #   * button: 可以是 {"buttons": [...]}，也可以是 {"text": ..., "callback": ...}
+    #     （ok-script 官方示例 MyOneTimeTask 用的就是后者）
+    #   * text_edit / line_edit / file_selector / global 等没有必填键
+    REQUIRED_KEYS = {
+        'drop_down': ('options',),
+        'multi_selection': ('options',),
+    }
+    # 例外写法：ConfigItemFactory 里 drop_down 有两种分支 ——
+    #     if isinstance(value, list) and 'options_available' in the_type:
+    #         return ModifyListItem(..., options_available=...)
+    #     return LabelAndDropDown(config_desc, the_type['options'], ...)
+    # 也就是说带 options_available 的那种走 ModifyListItem，**不需要 options**。
+    # （第一版没考虑这个分支，把 MyOneTimeTask 里的合法写法误报成错误。）
+    ALTERNATIVES = {
+        'drop_down': ('options_available',),
+    }
+
+    def tearDown(self):
+        pass
+
+    def test_config_types_are_valid(self):
+        from src.tasks.daily_task import DailyTask
+        candidates = [DailyTask]
+        problems = []
+
+        # 直接把 config.py 里注册的 onetime 任务全实例化检查太重，
+        # 这里改成静态扫源码：找出所有 config_type.update({...}) 里的 type 声明。
+        for path in sorted(glob.glob(os.path.join('src', '**', '*.py'), recursive=True)):
+            with open(path, encoding='utf-8') as f:
+                src = f.read()
+            try:
+                tree = ast.parse(src)
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                # 只关心 {"type": "xxx", ...} 这种字面量字典
+                if not isinstance(node, ast.Dict):
+                    continue
+                keys = [k.value for k in node.keys
+                        if isinstance(k, ast.Constant) and isinstance(k.value, str)]
+                if 'type' not in keys:
+                    continue
+                type_values = [
+                    v.value for k, v in zip(node.keys, node.values)
+                    if isinstance(k, ast.Constant) and k.value == 'type'
+                    and isinstance(v, ast.Constant) and isinstance(v.value, str)
+                ]
+                for type_value in type_values:
+                    required = self.REQUIRED_KEYS.get(type_value)
+                    if not required:
+                        continue
+                    # 有例外写法就放过（见 ALTERNATIVES）
+                    if any(alt in keys for alt in self.ALTERNATIVES.get(type_value, ())):
+                        continue
+                    for req in required:
+                        if req not in keys:
+                            problems.append(
+                                f'{path}:{node.lineno} 声明了 type={type_value!r} '
+                                f'但缺少 {req!r} 键（会导致 KeyError，程序启动失败）')
+        self.assertEqual([], problems,
+                         'config_type 声明不合法:\n  ' + '\n  '.join(problems))
+
+    def test_guide_scroll_task_dropdowns_have_options(self):
+        """★ 回归：就是这条让测试版起不来的。"""
+        with open('src/tasks/debug_guide_scroll.py', encoding='utf-8') as f:
+            src = f.read()
+        tree = ast.parse(src)
+        found = 0
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Dict):
+                continue
+            pairs = {k.value: v for k, v in zip(node.keys, node.values)
+                     if isinstance(k, ast.Constant)}
+            if pairs.get('type') and getattr(pairs['type'], 'value', None) == 'drop_down':
+                found += 1
+                self.assertIn('options', pairs,
+                              f'{src[:0]}debug_guide_scroll 的 drop_down 缺 options')
+                opts = pairs['options']
+                self.assertIsInstance(opts, ast.Call, 'options 应该是 list(...)')
+        self.assertGreaterEqual(found, 2, '至少应有「测试方向」和「起止线」两个下拉框')
+
+    def test_every_registered_task_can_be_configured(self):
+        """config.py 里注册的任务类都能 import（避免注册了不存在的类）。"""
+        import importlib
+        from src.config import config
+        pairs = config['onetime_tasks']
+        self.assertTrue(pairs)
+        for module_name, class_name in pairs:
+            mod = importlib.import_module(module_name)
+            self.assertTrue(hasattr(mod, class_name),
+                            f'{module_name} 里没有 {class_name}')
+
+
 if __name__ == '__main__':
     unittest.main()
