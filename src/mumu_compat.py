@@ -74,44 +74,114 @@ WALK_MAX_DEPTH = 3
 DLL_NAME = 'external_renderer_ipc.dll'
 
 
+def _norm(path):
+    """归一化路径，用来判断两个候选是不是同一个文件。
+
+    glob 返回的路径里分隔符可能混用（``nx_main/sdk/...`` 和 ``nx_main\\sdk\\...``
+    指向同一个文件），不归一就会出现重复候选 —— 会白白多重试一遍加载。
+    """
+    try:
+        return os.path.normcase(os.path.normpath(os.path.abspath(path)))
+    except Exception:
+        return path
+
+
+def candidate_roots(nemu_folder, max_up=3):
+    """把"可能的安装根"都列出来 —— 从 nemu_folder 开始逐级往上。
+
+    ⚠️ 为什么不能假定 nemu_folder 就是安装根：
+    ok-script 传进来的是 ``base_folder()`` = ``dirname(dirname(emulator.path))``，
+    而 ``emulator.path`` 在不同 MuMu 版本下层级不一样::
+
+        MuMu 12: <root>\\shell\\MuMuPlayer.exe
+                 -> base_folder = <root>                       ✅ 正好是安装根
+        MuMu 15: <root>\\nx_device\\15.0\\shell\\MuMuNxDevice.exe
+                 -> base_folder = <root>\\nx_device\\15.0       ❌ 深了两层
+
+    （MuMu 15 的那个路径是 ok-script 的 ``resolve_emulator_window_exe`` 拼出来的。）
+    所以只按 nemu_folder 拼路径会拼到 ``<root>\\nx_device\\15.0\\nx_main\\sdk\\...``，
+    而真实文件在 ``<root>\\nx_main\\sdk\\...`` —— 恰好找不到。
+
+    逐级往上试就能同时覆盖这两种情况，而且不依赖盘符（C/D/E/F 盘都行，
+    因为全是相对 nemu_folder 拼出来的相对路径）。
+    """
+    roots = []
+    if not nemu_folder:
+        return roots
+    current = os.path.abspath(nemu_folder)
+    for _ in range(max_up + 1):
+        if current and current not in roots:
+            roots.append(current)
+        parent = os.path.dirname(current)
+        if parent == current:          # 到盘根了
+            break
+        current = parent
+    return roots
+
+
 def find_ipc_dlls(nemu_folder):
     """按 MuMu 新版目录结构找出所有候选的 IPC DLL，返回路径列表。
 
-    **不依赖版本号** —— 这是重点：写死 12.0 正是 MuMu 15 用不了原生 IPC 的原因。
+    **不依赖版本号、也不依赖盘符** —— 全部相对 nemu_folder 及其上级目录拼出来。
+    写死 12.0 正是 MuMu 15 用不了原生 IPC 的原因。
     """
     if not nemu_folder or not os.path.isdir(nemu_folder):
         return []
 
     found = []
-    for pattern in DLL_GLOBS:
-        for path in sorted(glob.glob(os.path.join(nemu_folder, pattern))):
-            if path not in found:
-                found.append(path)
+    seen = set()
+    for root in candidate_roots(nemu_folder):
+        for pattern in DLL_GLOBS:
+            for path in sorted(glob.glob(os.path.join(root, pattern))):
+                key = _norm(path)
+                if key not in seen:
+                    seen.add(key)
+                    found.append(path)
+    # 注意这里**不提前 return**：要把所有候选都收齐。
+    # 一个 DLL 存在不代表能加载（可能缺依赖库），多留几个备选给 patched_init
+    # 按顺序重试 —— 之前写了 `if found: return`，结果只拿到一个就收手了。
     if found:
         return found
 
     # 兜底：有限深度递归（排除 vms 等大目录），防止 MuMu 以后又换布局
-    base_depth = os.path.abspath(nemu_folder).rstrip('\\/').count(os.sep)
-    for root, dirs, files in os.walk(nemu_folder):
-        depth = os.path.abspath(root).count(os.sep) - base_depth
-        if depth >= WALK_MAX_DEPTH:
-            dirs[:] = []
-        else:
-            dirs[:] = [d for d in dirs if d.lower() not in WALK_SKIP_DIRS]
-        if DLL_NAME in files:
-            found.append(os.path.join(root, DLL_NAME))
+    for root in candidate_roots(nemu_folder, max_up=1):
+        base_depth = os.path.abspath(root).rstrip('\\/').count(os.sep)
+        for dirpath, dirs, files in os.walk(root):
+            depth = os.path.abspath(dirpath).count(os.sep) - base_depth
+            if depth >= WALK_MAX_DEPTH:
+                dirs[:] = []
+            else:
+                dirs[:] = [d for d in dirs if d.lower() not in WALK_SKIP_DIRS]
+            if DLL_NAME in files:
+                path = os.path.join(dirpath, DLL_NAME)
+                key = _norm(path)
+                if key not in seen:
+                    seen.add(key)
+                    found.append(path)
+        if found:
+            return found
     return found
 
 
 def find_keep_alive_configs(base_folder, player_id=None):
     """找出 ``vms/MuMuPlayer-*/configs/customer_config.json``。
 
-    同样不写死版本号；``player_id`` 能给就给（优先匹配当前实例）。
+    同样不写死版本号，也从多个候选根去找（base_folder 在 MuMu 15 上偏深）。
+    ``player_id`` 能给就给（优先匹配当前实例）。
     """
     if not base_folder or not os.path.isdir(base_folder):
         return []
-    paths = sorted(glob.glob(os.path.join(
-        base_folder, 'vms', 'MuMuPlayer-*', 'configs', 'customer_config.json')))
+    paths = []
+    seen = set()
+    for root in candidate_roots(base_folder):
+        for path in sorted(glob.glob(os.path.join(
+                root, 'vms', 'MuMuPlayer-*', 'configs', 'customer_config.json'))):
+            key = _norm(path)
+            if key not in seen:
+                seen.add(key)
+                paths.append(path)
+        if paths:
+            break
     if player_id is not None:
         suffix = f'-{player_id}' + os.sep + 'configs' + os.sep + 'customer_config.json'
         paths.sort(key=lambda p: 0 if p.endswith(suffix) else 1)

@@ -1175,6 +1175,53 @@ class TestMuMuCompat(unittest.TestCase):
             self.assertTrue(any('15.0' in p for p in found), found)
             self.assertTrue(any('nx_main' in p for p in found), found)
 
+    def test_find_ipc_dlls_works_when_folder_is_deeper_than_root(self):
+        """★ 真实场景：MuMu 15 上传进来的 nemu_folder 比安装根深两层。
+
+        ok-script 传的是 base_folder() = dirname(dirname(emulator.path))：
+            MuMu 12: <root>\\shell\\MuMuPlayer.exe        -> <root>            ✓
+            MuMu 15: <root>\\nx_device\\15.0\\shell\\MuMuNxDevice.exe
+                     -> <root>\\nx_device\\15.0          ✗ 深了两层
+        所以不能假定它就是安装根 —— 必须逐级往上找。
+        """
+        from src.mumu_compat import candidate_roots, find_ipc_dlls
+        with tempfile.TemporaryDirectory() as root:
+            for rel in (r'nx_main\sdk', r'nx_device\15.0\shell\sdk'):
+                d = os.path.join(root, rel.replace('\\', os.sep))
+                os.makedirs(d, exist_ok=True)
+                with open(os.path.join(d, 'external_renderer_ipc.dll'), 'wb') as f:
+                    f.write(b'MZ')
+            deeper = os.path.join(root, 'nx_device', '15.0')
+            found = find_ipc_dlls(deeper)
+            self.assertEqual(2, len(found),
+                             f'从深层目录也要能往上找到 DLL，实际 {found}')
+            self.assertTrue(any('nx_main' in p for p in found), found)
+            # 逐级往上的候选根要包含安装根
+            self.assertIn(os.path.abspath(root), candidate_roots(deeper))
+
+    def test_candidate_roots_handles_drive_root_and_none(self):
+        from src.mumu_compat import candidate_roots
+        self.assertEqual([], candidate_roots(None))
+        self.assertEqual([], candidate_roots(''))
+        roots = candidate_roots(r'D:\a\b\c\d\e', max_up=3)
+        self.assertEqual([os.path.abspath(r'D:\a\b\c\d\e'),
+                          os.path.abspath(r'D:\a\b\c\d'),
+                          os.path.abspath(r'D:\a\b\c'),
+                          os.path.abspath(r'D:\a\b')], roots)
+
+    def test_no_absolute_drive_path_is_hardcoded(self):
+        """不许出现写死的盘符/绝对路径 —— 用户可能装在 C/D/E/F 任意盘。
+
+        路径全部是相对 nemu_folder 及其上级目录拼出来的，所以换盘符不受影响。
+        """
+        with open('src/mumu_compat.py', encoding='utf-8') as f:
+            code = _code_only(f.read())
+        for letter in 'CDEF':
+            self.assertNotIn("'" + letter + ':', code,
+                             f'代码里出现了写死的盘符 {letter}:')
+            self.assertNotIn('"' + letter + ':', code,
+                             f'代码里出现了写死的盘符 {letter}:')
+
     def test_find_ipc_dlls_matches_mumu12_layout(self):
         """老的 MuMu 12 结构也要能命中（补丁不能把 12 弄坏）。"""
         from src.mumu_compat import find_ipc_dlls
