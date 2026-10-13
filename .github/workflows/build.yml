@@ -161,6 +161,57 @@ jobs:
           if (-not $files) { throw "打包产物目录 $dist 是空的" }
           Write-Host "打包产物 $($files.Count) 个: $($files.Name -join ', ')"
 
+          # ===== 更新日志 =====
+          # 更新日志是**给用户看的**，只该有面向用户的功能变化。
+          # 自动生成的 commit 列表会把内部改动（改文档 / 加用例 / 调 CI）也带进来，
+          # 那对用户毫无意义，所以这里做过滤。
+          #
+          # 过滤按**分句**做，不是整条丢：一个提交标题里可能既有功能又有内部杂项，
+          # 例如 "MuMu 15 原生 IPC 路径适配; ADB 滑动补偿; README 补充"
+          # —— 只该剔掉最后的 README 那句，功能要留下。
+          #
+          # 约定：只面向内部的提交用 chore:/docs:/test:/ci:/style:/build: 开头。
+          # 另外注意：不要往**提交标题**里写内部信息（谁反馈的、谁的疏忽之类），
+          # 那些放提交正文 —— 这里只取标题，正文不会外泄。
+          $skipPrefix = '^(chore|docs|doc|test|tests|ci|style|build)\s*[:：]'
+          $skipKeyword = 'README|readme|文档|注释|测试|用例|门禁|工作流|workflow|依赖|格式化'
+          # 会暴露内部沟通的措辞，单独一组，措辞更明确
+          $skipLeak = '用户指出|用户反馈|用户反映|用户报告|根据反馈|有人反馈|对话'
+          $changeLines = @()
+          foreach ($raw in ($env:CHANGES -split "`r?`n")) {
+            $line = $raw.Trim()
+            if (-not $line) { continue }
+            $subject = $line.TrimStart('*').Trim()
+            # 整条带内部前缀的直接丢
+            if ($subject -match $skipPrefix) { Write-Host "更新日志剔除(内部前缀): $line"; continue }
+
+            # 再按分句过滤
+            $kept = @()
+            foreach ($clause in ($subject -split '[;；]')) {
+              $c = $clause.Trim()
+              if (-not $c) { continue }
+              if ($c -match $skipLeak) { Write-Host "更新日志剔除(内部措辞): $c"; continue }
+              if ($c -match $skipKeyword) { Write-Host "更新日志剔除(内部关键词): $c"; continue }
+              $kept += $c
+            }
+            if (-not $kept.Count) { Write-Host "更新日志剔除(整条无功能内容): $line"; continue }
+            $changeLines += ('* ' + ($kept -join '; '))
+          }
+
+          # 手写覆盖：有 .github/release-notes/<tag>.md 就用它（内容只放条目，不用写标题）
+          $notesFile = ".github/release-notes/$env:TAG.md"
+          if (Test-Path $notesFile) {
+            Write-Host "使用手写的更新日志: $notesFile"
+            $changeBlock = (Get-Content $notesFile -Raw).Trim()
+          } else {
+            $changeBlock = ($changeLines -join "`n").Trim()
+            if (-not $changeBlock) {
+              Write-Host '过滤后没有面向用户的变化，用兜底文案'
+              $changeBlock = '* 本次以修复和优化为主'
+            }
+          }
+          Write-Host "更新日志条目数: $(($changeBlock -split "`n").Count)"
+
           # 认不出来的产物排在 online 之后（rank 2.5），并标注待补充
           $entries = foreach ($f in $files) {
             $key = $null
@@ -177,7 +228,7 @@ jobs:
           $body = @()
           $body += "### 更新日志 $env:START_TAG -> $env:END_TAG"
           $body += ''
-          $body += $env:CHANGES.Trim()
+          $body += $changeBlock
           $body += ''
           $body += '### 下载哪个（Windows）'
           $body += ''

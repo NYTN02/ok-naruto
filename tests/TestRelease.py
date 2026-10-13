@@ -1418,5 +1418,116 @@ class TestGuideAdbSwipeCompensation(unittest.TestCase):
         self.assertIn('default_swipe_duration(slow=slow)', src)
 
 
+class TestReleaseNotesHygiene(unittest.TestCase):
+    """发布正文的更新日志只该有**面向用户的功能变化**。
+
+    踩过的坑：v0.1.12 的更新日志直接用了 commit 标题列表，混进了两类东西 ——
+      * 跟功能无关的：「README 删掉过时的丰饶之间入口条目」「README 措辞」
+      * 内部对话内容：「修复...（用户指出的真 bug）」
+    这两类给用户看都没意义，第二类更不该外泄。
+
+    现在有两道防线：build.yml 里过滤 + 可选的手写覆盖文件。
+    """
+
+    # 内部改动用的前缀约定
+    INTERNAL_PREFIX = re.compile(r'^(chore|docs|doc|test|tests|ci|style|build)\s*[:：]')
+    INTERNAL_KEYWORD = re.compile(
+        r'README|readme|文档|注释|测试|用例|门禁|工作流|workflow|依赖|格式化')
+    # 会暴露内部沟通的措辞
+    LEAK_WORD = re.compile(r'用户指出|用户反馈|用户反映|用户报告|根据反馈|有人反馈|对话')
+
+    def _keep(self, subject):
+        """复刻 build.yml 的过滤逻辑（按分句，两边必须一致）。
+
+        返回过滤后剩下的内容；空字符串表示整条都被剔掉。
+        """
+        if self.INTERNAL_PREFIX.match(subject):
+            return ''
+        kept = []
+        for clause in re.split(r'[;；]', subject):
+            c = clause.strip()
+            if not c:
+                continue
+            if self.LEAK_WORD.search(c) or self.INTERNAL_KEYWORD.search(c):
+                continue
+            kept.append(c)
+        return '; '.join(kept)
+
+    def test_filter_drops_internal_clauses(self):
+        """★ 回归：v0.1.12 泄漏的那几条必须被过滤掉。"""
+        # 整条都是内部内容的，过滤后应该什么都不剩
+        for subject in (
+            'chore: 补 README 的疑难解答',
+            'docs: 更新说明',
+            'test: 新增回归用例',
+            'README 措辞',
+        ):
+            self.assertEqual('', self._keep(subject),
+                             f'这条不该出现在更新日志里: {subject}')
+        # 混着内部措辞的分句要被剔掉（这句会暴露内部沟通）
+        self.assertNotIn('用户指出', self._keep('修复某个路径层级（用户指出的真 bug）'))
+
+    def test_filter_keeps_feature_clauses_of_mixed_commits(self):
+        """混合提交里的**功能分句**必须留下（不能整条丢）。
+
+        踩过：一开始整条丢，结果
+          "MuMu 15 原生 IPC 路径适配; ADB 滑动补偿; README 补充"
+        连功能一起没了。
+        """
+        mixed = 'MuMu 15 原生 IPC 路径适配; ADB 滑动补偿; README 补充'
+        kept = self._keep(mixed)
+        self.assertIn('MuMu 15 原生 IPC 路径适配', kept)
+        self.assertIn('ADB 滑动补偿', kept)
+        self.assertNotIn('README', kept)
+
+        mixed2 = '每日分享: 点分享入口最多3次; README 删掉过时的丰饶之间入口条目'
+        kept2 = self._keep(mixed2)
+        self.assertIn('每日分享', kept2)
+        self.assertNotIn('README', kept2)
+
+    def test_filter_keeps_user_facing_changes(self):
+        """真功能变化不能被误杀。"""
+        for subject in (
+            '每日分享支持微信: 检测 share_qq 或 share_wechat, 点中哪个都算成功',
+            '小队突袭流程重构: 打完一场判断能否继续, 最多两场',
+            '修复 ADB 截图时指南列表上下滑动失灵的问题',
+            'MuMu 15 原生 IPC 路径适配; ADB 滑动补偿',
+        ):
+            self.assertTrue(self._keep(subject), f'这条应该保留: {subject}')
+
+    def test_workflow_filters_and_supports_override(self):
+        """build.yml 里必须真的有过滤（分句 + 泄漏词）+ 手写覆盖这两条路径。"""
+        with open('.github/workflows/build.yml', encoding='utf-8') as f:
+            wf = f.read()
+        self.assertIn('skipPrefix', wf, 'build.yml 没有按前缀过滤')
+        self.assertIn('skipKeyword', wf, 'build.yml 没有按关键词过滤')
+        self.assertIn('skipLeak', wf, 'build.yml 没有过滤会暴露内部沟通的措辞')
+        for kw in ('chore', 'docs', 'test', 'ci'):
+            self.assertIn(kw, wf, f'过滤前缀里缺 {kw}')
+        self.assertIn("split '[;；]'", wf, 'build.yml 没有按分句过滤（会误杀混合提交）')
+        # 不能再直接把原始 CHANGES 塞进正文
+        self.assertNotIn('$body += $env:CHANGES.Trim()', wf,
+                         '正文还在直接用未过滤的 commit 列表')
+        self.assertIn('$changeBlock', wf, '没有用过滤后的内容')
+        # 手写覆盖
+        self.assertIn('.github/release-notes/', wf, '没有手写更新日志的覆盖路径')
+        self.assertIn('Test-Path $notesFile', wf, '没有判断覆盖文件是否存在')
+
+    def test_body_strings_have_no_internal_wording(self):
+        """**写进正文的文案**不能有内部措辞。
+
+        注意不能整文件搜：$skipLeak 是黑名单，里面**必须**出现这些词
+        （它就是靠这些词做过滤的），整文件搜会自相矛盾。
+        所以只看 $body += 那些真正写进 release 正文的行。
+        """
+        with open('.github/workflows/build.yml', encoding='utf-8') as f:
+            lines = f.read().splitlines()
+        body_lines = [ln.strip() for ln in lines if ln.strip().startswith('$body +=')]
+        self.assertTrue(body_lines, '没找到写正文的行，工作流结构变了？')
+        for bad in ('用户指出', '用户反馈', '用户反映', '我错了', '疏忽'):
+            hits = [ln for ln in body_lines if bad in ln]
+            self.assertEqual([], hits, f'正文文案里出现了内部措辞 {bad}: {hits}')
+
+
 if __name__ == '__main__':
     unittest.main()
