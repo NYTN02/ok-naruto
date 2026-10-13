@@ -12,7 +12,10 @@
     会被误判成"没动"。
   * 截图/操作路径：纯 adb 的 input swipe 会丢掉 settle_time。
 
-这个任务把两个方向**拆开单独跑**，每次滑动后打印**画面差异实际数值**，
+这个任务**不做任何导航** —— 前提是你已经手动打开「指南」界面。
+这样同一个界面就能连着跑几组参数（用户线 / 内缩线），不用每次来回点。
+
+它把两个方向**拆开单独跑**，每次滑动后打印**画面差异实际数值**，
 一眼就能区分上面三种：
     差异值很大（>2）      -> 手势生效，问题在别处（比如找不到条目本身）
     差异值 0.3~2          -> 手势生效但**被阈值判成没动** -> 阈值定高了
@@ -28,11 +31,6 @@
 
 from src.tasks.guide_nav import (
     GUIDE_CANCEL,
-    GUIDE_ENTRY,
-    GUIDE_ITEM_TIMEOUT,
-    GUIDE_LISTBOTTOM,
-    GUIDE_LISTTOP,
-    GUIDE_OPEN_WAIT,
     GUIDE_SCROLL_DOWN_FROM_Y,
     GUIDE_SCROLL_DOWN_TO_Y,
     GUIDE_SCROLL_INNER_FROM_Y,
@@ -86,40 +84,34 @@ class DebugGuideScrollTask(GuideNavTask):
     # ------------------------------------------------------------------
     def run(self):
         self.log_info("=== 指南滑动测试开始 ===")
+        self.log_info("前提：**请先手动打开「指南」界面再运行本任务** —— "
+                      "它不做任何导航（不回主页面、不点指南入口、结束时也不退出），"
+                      "这样同一个界面可以连着测几组参数")
         self.log_info("结果怎么看：差异值 >2 手势生效；0.3~2 说明动了但被阈值判成没动；"
                       "≈0 才是真的没生效")
 
-        if not self.enter_guide_page():
-            return
+        if not self._looks_like_guide_page():
+            self.log_warning(f"没看到 {GUIDE_CANCEL}，当前可能不在「指南」界面 —— "
+                             f"滑动可能落在别的地方。仍然继续执行，请自行核对画面")
 
-        try:
-            to_test = self._directions_to_test()
-            summary = []
-            for to_bottom in to_test:
-                summary.append(self._test_one_direction(to_bottom))
-            self._print_summary(summary)
-        finally:
-            self.exit_guide_page()
+        to_test = self._directions_to_test()
+        summary = []
+        for to_bottom in to_test:
+            summary.append(self._test_one_direction(to_bottom))
+        self._print_summary(summary)
 
-        self.log_info("=== 指南滑动测试结束 ===")
+        self.log_info("=== 指南滑动测试结束（界面保持原样，方便再跑一组）===")
 
     # ------------------------------------------------------------------
-    def enter_guide_page(self):
-        """回到主页面并点开指南。"""
-        if not self.is_main_page():
-            self.log_info("当前不在主页面，先退回主页面")
-            self.back_to_main(max_rounds=12, interval=0.8, log=False)
-        if not self.click_feature(GUIDE_ENTRY, time_out=GUIDE_ITEM_TIMEOUT):
-            self.log_error(f"未找到 {GUIDE_ENTRY}，无法打开指南")
-            return False
-        self.sleep(GUIDE_OPEN_WAIT)
-        return True
+    def _looks_like_guide_page(self):
+        """轻量判断当前是不是在指南界面（看到 guide_cancel 就算）。
 
-    def exit_guide_page(self):
-        if self.click_feature(GUIDE_CANCEL, time_out=GUIDE_ITEM_TIMEOUT):
-            self.log_info(f"已点击 {GUIDE_CANCEL} 退出指南")
-        elif not self.is_main_page():
-            self.back_to_main(max_rounds=12, interval=0.8, log=False)
+        只是提醒，不会拦住任务 —— 万一模板认不出来也不该让测试跑不了。
+        """
+        try:
+            return self._safe_find_one(GUIDE_CANCEL) is not None
+        except Exception:
+            return False
 
     def _directions_to_test(self):
         choice = self.config.get('测试方向', DIRECTION_BOTH)
