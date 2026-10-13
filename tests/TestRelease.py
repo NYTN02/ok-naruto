@@ -1411,11 +1411,60 @@ class TestGuideAdbSwipeCompensation(unittest.TestCase):
         self.assertLess(sweep.index('slow_retry_used'), sweep.rindex('stuck_streak += 1'),
                         '慢速补救必须在 stuck_streak 自增之前')
 
-    def test_scroll_guide_accepts_slow(self):
+    def test_scroll_guide_accepts_slow_and_inner(self):
+        """scroll_guide 要支持两级补救：慢速拖动 + 内缩起止线。"""
         with open('src/tasks/guide_nav.py', encoding='utf-8') as f:
             src = f.read()
-        self.assertIn('def scroll_guide(self, to_bottom=True, slow=False)', src)
+        self.assertIn('def scroll_guide(self, to_bottom=True, slow=False, inner=False)', src)
         self.assertIn('default_swipe_duration(slow=slow)', src)
+        # 内缩线要真的被用上
+        body = src.split('def scroll_guide')[1].split('def list_thumb')[0]
+        self.assertIn('GUIDE_SCROLL_INNER_FROM_Y', body, '内缩线没在 scroll_guide 里用')
+        self.assertIn('if inner:', body, '没有区分 inner 模式')
+
+    def test_inner_scroll_lines_are_symmetric_and_inside_list(self):
+        """★ 内缩备用线：两个方向的起点都必须落在列表内部。
+
+        这是针对"只有一个方向滑不动"的关键假设：**起点必须落在列表的可触摸区**，
+        而用户给的两条线起点分别在 0.777 / 0.325 —— 起点位置本来就不对称，
+        往下找的 0.777 有可能压在列表之外（底下还有别的面板）。
+        """
+        from src.tasks.guide_nav import (
+            GUIDE_SCROLL_INNER_FROM_Y,
+            GUIDE_SCROLL_INNER_TO_Y,
+        )
+        self.assertLess(GUIDE_SCROLL_INNER_TO_Y, GUIDE_SCROLL_INNER_FROM_Y)
+        # 内缩：比用户给的 0.777 / 0.325 更靠里
+        self.assertLess(GUIDE_SCROLL_INNER_FROM_Y, 0.777, '内缩线的起点应该更靠里')
+        self.assertGreater(GUIDE_SCROLL_INNER_TO_Y, 0.325, '内缩线的终点应该更靠里')
+        # 落在列表范围内（按标注量出来约 0.162 ~ 0.828），且离边缘留有余量
+        coco = json.load(open(COCO_PATH, encoding='utf-8'))
+        cats = {c['id']: c['name'] for c in coco['categories']}
+        imgs = {i['id']: i for i in coco['images']}
+        centers = {}
+        for a in coco['annotations']:
+            name = cats[a['category_id']]
+            if name in ('guide_listtop', 'guide_listbottom'):
+                _, y, _, h = a['bbox']
+                centers[name] = (y + h / 2) / imgs[a['image_id']]['height']
+        top, bottom = centers['guide_listtop'], centers['guide_listbottom']
+        for label, value in (('内缩起点', GUIDE_SCROLL_INNER_FROM_Y),
+                             ('内缩终点', GUIDE_SCROLL_INNER_TO_Y)):
+            self.assertGreater(value, top, f'{label} {value} 超出列表上边缘')
+            self.assertLess(value, bottom, f'{label} {value} 超出列表下边缘')
+
+    def test_sweep_has_two_level_remediation(self):
+        """_sweep_entry 里两级补救都要有，且都在计入 stuck 之前。"""
+        with open('src/tasks/guide_nav.py', encoding='utf-8') as f:
+            sweep = f.read().split('def _sweep_entry')[1].split('def click_below')[0]
+        self.assertIn('slow_retry_used', sweep, '没有慢速拖动补救')
+        self.assertIn('inner_retry_used', sweep, '没有内缩起止线补救')
+        self.assertIn('inner=True', sweep, '没有真的用内缩线滑')
+        self.assertIn('inner_mode', sweep, '内缩线生效后没有沿用')
+        # 两级补救都必须排在 stuck_streak 自增之前
+        last_stuck = sweep.rindex('stuck_streak += 1')
+        self.assertLess(sweep.index('slow_retry_used = True'), last_stuck)
+        self.assertLess(sweep.index('inner_retry_used = True'), last_stuck)
 
 
 class TestReleaseNotesHygiene(unittest.TestCase):

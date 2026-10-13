@@ -87,6 +87,24 @@ GUIDE_SCROLL_DOWN_TO_Y = 0.325      # 往下找：终点（拖到这里再松手
 GUIDE_SCROLL_UP_FROM_Y = 0.325      # 往上找：起点
 GUIDE_SCROLL_UP_TO_Y = 0.777        # 往上找：终点
 
+# ---------------------------------------------------------------------------
+# 内缩的备用起止线（滑不动时的第二级补救）
+#
+# 为什么需要：**终点落在哪不重要，但起点必须落在列表的可触摸区域里**，
+# 否则这一次拖动根本不会生效。而上面那两条线是两个方向的**起点**分别在
+# 0.777 和 0.325 —— 起点位置本来就是不对称的：
+#
+#   往下找 起点 0.777（列表靠下）  ← 如果列表的可触摸区没到这么低，就整条失效
+#   往上找 起点 0.325（列表靠上）  ← 通常落在列表里，所以"看起来正常"
+#
+# 这正好解释"只有一个方向滑不动"。所以滑不动时，再用一对**内缩**的线补救一次 ——
+# 内缩后两个方向的起点都稳稳在列表内部，不会再踩这个坑。
+# 注意"内缩"是**往列表中间收**：0.777/0.325 这对线收紧成 0.700/0.400，
+# 两端都离列表边缘更远（一开始把 TO 写成 0.300 是往外扩了，方向搞反，被用例拦住）。
+# 用户给定的那两条线仍是首选，不会被替换掉。
+GUIDE_SCROLL_INNER_FROM_Y = 0.700
+GUIDE_SCROLL_INNER_TO_Y = 0.400
+
 GUIDE_SCROLL_SETTLE = 0.35      # 拖到终点后再按住多久才松开
 
 # ---------------------------------------------------------------------------
@@ -287,7 +305,7 @@ class GuideNavTask(PageNavTask):
                 self.log_warning(f"模板 {name} 不存在，指南列表的边界判断会失效，"
                                  f"滑动会一直做到次数上限")
 
-    def scroll_guide(self, to_bottom=True, slow=False):
+    def scroll_guide(self, to_bottom=True, slow=False, inner=False):
         """在指南列表上滑一次（手势起止点见模块开头的 GUIDE_SCROLL_* 常量）。
 
         ``to_bottom=True``  -> 想看列表**更下面**的内容：按住 0.777 滑到 0.325
@@ -296,10 +314,20 @@ class GuideNavTask(PageNavTask):
         手指方向和内容方向是反的，很容易搞混，所以参数按"想看哪边的内容"命名：
         手指往上拖时内容跟着往上走，看到的是更下面的条目。
 
-        ``slow=True`` 用更慢的拖动（纯 adb 路径滑不动时靠它补救）。
+        ``slow=True``   用更慢的拖动（纯 adb 路径滑不动时靠它补救）。
+        ``inner=True``  改用**内缩**的起止线（起点不在列表可触摸区时靠它补救，
+                        见 GUIDE_SCROLL_INNER_* 的说明）。
         """
         x = int(self.width * GUIDE_SCROLL_X)
-        if to_bottom:
+        if inner:
+            # 内缩后两个方向都用同一对内边界，起点稳稳在列表里
+            if to_bottom:
+                y_from = int(self.height * GUIDE_SCROLL_INNER_FROM_Y)
+                y_to = int(self.height * GUIDE_SCROLL_INNER_TO_Y)
+            else:
+                y_from = int(self.height * GUIDE_SCROLL_INNER_TO_Y)
+                y_to = int(self.height * GUIDE_SCROLL_INNER_FROM_Y)
+        elif to_bottom:
             y_from = int(self.height * GUIDE_SCROLL_DOWN_FROM_Y)
             y_to = int(self.height * GUIDE_SCROLL_DOWN_TO_Y)
         else:
@@ -324,12 +352,18 @@ class GuideNavTask(PageNavTask):
         return cv2.resize(cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY), (32, 32)).astype('int16')
 
     def list_moved(self, before, after):
-        """滑动前后列表画面是否明显变化；拿不到画面时保守地当成"动了"。"""
+        """滑动前后列表画面是否明显变化；拿不到画面时保守地当成"动了"。
+
+        差异值用 **info** 级打印（不是 debug）：这是判断"手势有没有生效"的唯一依据，
+        用户日志里必须看得到，否则只能靠猜。
+        """
         if before is None or after is None:
             return True
         diff = float(np.abs(before - after).mean())
         moved = diff > GUIDE_LIST_MOVE_THRESHOLD
-        self.log_debug(f"[指南] 滑动前后画面差异 {diff:.2f} -> {'有变化' if moved else '没变化'}")
+        self.log_info(f"[指南] 滑动前后画面差异 {diff:.2f}"
+                      f"（阈值 {GUIDE_LIST_MOVE_THRESHOLD}）-> "
+                      f"{'有变化' if moved else '没变化'}")
         return moved
 
     def exit_guide(self):
@@ -456,7 +490,9 @@ class GuideNavTask(PageNavTask):
         direction = '下' if to_bottom else '上'
         boundary = GUIDE_LISTBOTTOM if to_bottom else GUIDE_LISTTOP
         stuck_streak = 0
-        slow_retry_used = False      # 每个方向只做一次"慢速补救"，避免反复拖延
+        slow_retry_used = False      # 每个方向只做一次"慢速拖动"补救
+        inner_retry_used = False     # 每个方向只做一次"内缩起止线"补救
+        inner_mode = False           # 内缩线一旦证明有效，后面就一直用它
 
         for i in range(1, max_swipes + 1):
             if self.should_stop('指南滑动'):
@@ -472,7 +508,7 @@ class GuideNavTask(PageNavTask):
 
             self.log_info(f"[指南] 往{direction}找 {i}/{max_swipes}：「{item_pattern.pattern}」")
             before = self.list_thumb()
-            self.scroll_guide(to_bottom=to_bottom)
+            self.scroll_guide(to_bottom=to_bottom, inner=inner_mode)
 
             box = self.find_entry_on_screen(item_pattern, templates)
             if box is not None:
@@ -491,9 +527,13 @@ class GuideNavTask(PageNavTask):
                 self.log_info(f"[指南] 已经到顶（看到 {GUIDE_LISTTOP}），停止往{direction}找")
                 return None
 
-            # ---- 不是边界：先用更慢的拖动补救一次 ----
-            # 纯 adb 路径（input swipe）会把 settle_time 丢掉，"拖太快"会让游戏
-            # 当成一次甩动而不是拖拽，列表于是纹丝不动 —— 拉长 duration 通常能救。
+            # ---- 不是边界：两级补救，都失败才计入 stuck ----
+            #
+            # 补救阶梯（每级只做一次）：
+            #   ① 更慢的拖动 —— 纯 adb 的 input swipe 会丢掉 settle_time，
+            #      "拖太快被当成甩动"是最常见的失效原因
+            #   ② 内缩的起止线 —— 起点可能没落在列表的可触摸区里
+            #      （往下找的起点 0.777 尤其可疑，见 GUIDE_SCROLL_INNER_*）
             if not slow_retry_used and not self.uses_settle_time():
                 slow_retry_used = True
                 self.log_warning(
@@ -511,6 +551,26 @@ class GuideNavTask(PageNavTask):
                     stuck_streak = 0
                     continue
                 self.log_warning("[指南] 慢速拖动也没能让画面变化")
+
+            if not inner_retry_used:
+                inner_retry_used = True
+                self.log_warning(
+                    f"[指南] 往{direction}还是不动，改用**内缩**的起止线再试一次"
+                    f"（{GUIDE_SCROLL_INNER_FROM_Y} -> {GUIDE_SCROLL_INNER_TO_Y}）"
+                    f"—— 怀疑起点 {GUIDE_SCROLL_DOWN_FROM_Y if to_bottom else GUIDE_SCROLL_UP_FROM_Y}"
+                    f" 没落在列表的可触摸区域里")
+                before = self.list_thumb()
+                self.scroll_guide(to_bottom=to_bottom, inner=True)
+                box = self.find_entry_on_screen(item_pattern, templates)
+                if box is not None:
+                    self.log_info(f"[指南] 内缩起止线后找到「{item_pattern.pattern}」")
+                    return box
+                if self.list_moved(before, self.list_thumb()):
+                    self.log_info("[指南] 内缩起止线生效了，后面一直用内缩的线滑动")
+                    inner_mode = True      # 之后都用内缩线，不再重复补救
+                    stuck_streak = 0
+                    continue
+                self.log_warning("[指南] 内缩起止线也没能让画面变化")
 
             stuck_streak += 1
             self.log_error(
