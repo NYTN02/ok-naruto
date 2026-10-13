@@ -636,26 +636,40 @@ class TestGuideEntry(unittest.TestCase):
         self.assertIn('TEAMPRAY_PATTERN', src)
         self.assertNotIn("swipe_find('main_team'", src, '还在用旧的 main_team 入口')
 
-    def test_share_retries_once(self):
-        """每日分享失败后要退回主页面重试一次。
+    def test_share_retry_flow(self):
+        """每日分享：点分享入口最多 3 次（各等 1 秒看 share_qq），不出现就回主页面重试 2 次。
 
         一键日常跑的就是同一个 ShareTask，所以这里实现了，
-        「一键日常里的每日分享」也就一起有了重试。
+        「一键日常里的每日分享」也就一起有了同样的行为。
         """
-        from src.tasks.share_task import SHARE_RETRY, ShareTask
         from src.tasks.page_nav import PageNavTask
-        self.assertEqual(1, SHARE_RETRY, '每日分享应重试 1 次')
+        from src.tasks.share_task import (
+            SHARE_ENTRY_CLICKS,
+            SHARE_ENTRY_WAIT,
+            SHARE_RETRY,
+            ShareTask,
+        )
+        self.assertEqual(3, SHARE_ENTRY_CLICKS, '每轮应点 3 次分享入口')
+        self.assertEqual(1.0, SHARE_ENTRY_WAIT, '每次点完应等 1 秒再检测 share_qq')
+        self.assertEqual(2, SHARE_RETRY, '回主页面重试次数应为 2')
         # 重试需要"退回主页面"的能力
         self.assertTrue(issubclass(ShareTask, PageNavTask),
                         'ShareTask 必须继承 PageNavTask 才能 back_to_main')
-        self.assertTrue(callable(getattr(ShareTask, 'run_once', None)))
-        self.assertTrue(callable(getattr(ShareTask, 'should_stop', None)))
+        for name in ('run_once', 'finish_share', 'should_stop'):
+            self.assertTrue(callable(getattr(ShareTask, name, None)), f'缺少 {name}')
         with open('src/tasks/share_task.py', encoding='utf-8') as f:
             src = f.read()
         run_body = src.split('def run_once')[0]
         self.assertIn('range(SHARE_RETRY + 1)', run_body, '没有按 SHARE_RETRY 重试')
         self.assertIn('back_to_main(', run_body, '重试前没有退回主页面')
         self.assertIn('should_stop(', run_body, '没有响应停止')
+        once = src.split('def run_once')[1].split('def finish_share')[0]
+        self.assertIn('range(1, SHARE_ENTRY_CLICKS + 1)', once, '内层没有点 3 次入口')
+        self.assertIn('SHARE_ENTRY_WAIT', once, '点完没有等 1 秒')
+        # 判据是 share_qq
+        self.assertIn("'share_qq'", once, '没有检测 share_qq')
+        self.assertLess(once.index("'share_qq'"), once.index("'personal_share'"),
+                        '应该先看 share_qq 再看 personal_share（用户指定的判据优先）')
 
     def test_guide_scroll_stays_inside_list(self):
         """滑动的起止点必须落在列表范围内。
