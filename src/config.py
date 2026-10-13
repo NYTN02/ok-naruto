@@ -216,6 +216,7 @@ config = {
         ["src.tasks.back_to_main_task", "BackToMainTask"],  # 回到主页面
         ["src.tasks.debug_circle", "DebugCircleTask"],      # 战斗按钮校准
         ["src.tasks.debug_combat_click", "DebugCombatClickTask"],  # 战斗点击验证
+        ["src.tasks.debug_guide_scroll", "DebugGuideScrollTask"],   # 指南滑动测试
         ["ok", "DiagnosisTask"],                            # ok-script 自带诊断
 
         # ---- 用户用不到的开发示例 / 键位诊断，已按发布需求注释 ----
