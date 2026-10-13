@@ -88,6 +88,27 @@ GUIDE_SCROLL_UP_FROM_Y = 0.325      # 往上找：起点
 GUIDE_SCROLL_UP_TO_Y = 0.777        # 往上找：终点
 
 GUIDE_SCROLL_SETTLE = 0.35      # 拖到终点后再按住多久才松开
+
+# ---------------------------------------------------------------------------
+# 手势时长：**不同操作路径下含义完全不同**，必须区分
+#
+# ok-script 的 swipe 有三条路（ok/device/interaction_methods/adb.py:101）：
+#
+#   ① 原生 IPC（MuMu）：swipe_nemu —— duration 被忽略，靠 settle_time
+#                        在终点反复 down 来实现"按住"
+#   ② uiautomator2    ：swipe_u2  —— touch.down/move/up + settle_time，也能"按住"
+#   ③ 纯 adb          ：``input swipe x1 y1 x2 y2 <ms>``
+#                        ★ settle_time 被**完全丢弃**，根本没有"按住"这回事
+#
+# 我们的手势本来是"按住 -> 拖 -> 终点按住 0.35 秒 -> 松手"：
+# 在 ① ② 上是标准拖拽；在 ③ 上退化成"拖完立刻松手"= 一次快速**甩动**，
+# 实测这种列表根本不滚 —— 表现就是「指南界面上下滑动失灵」。
+#
+# 所以 ③ 只能靠**加长 duration** 弥补：拖得慢，系统才当拖拽而不是甩动。
+# 打包版没有 uiautomator2（见 requirements.txt），ADB 用户必定走 ③。
+GUIDE_SWIPE_DURATION_IPC = 0.5       # ① ②："按住"由 settle_time 负责
+GUIDE_SWIPE_DURATION_ADB = 1.5       # ③   ：拉长，避免被当成甩动
+GUIDE_SWIPE_DURATION_ADB_SLOW = 2.5  # ③   ：加强版，滑不动时再慢一档
 # 松手后等多久再去看画面。
 #
 # ⚠️ 这个值不能太小（当前 1 秒）：列表松手后还会靠惯性继续滚一会儿，
@@ -179,20 +200,49 @@ class GuideNavTask(PageNavTask):
             self.sleep(0.4)
         return False
 
-    def gesture(self, x1, y1, x2, y2, settle=GUIDE_SCROLL_SETTLE, after=GUIDE_SCROLL_AFTER):
+    def uses_settle_time(self):
+        """当前滑动路径是否支持 settle_time（也就是能不能"在终点按住"）。
+
+        见 GUIDE_SWIPE_DURATION_* 的说明：只有 IPC 和 uiautomator2 支持，
+        纯 adb 的 ``input swipe`` 会把 settle_time 丢掉。
+        """
+        interaction = getattr(self.executor, 'interaction', None)
+        if interaction is None:
+            return False
+        capture = getattr(interaction, 'capture', None)
+        if capture is not None:
+            try:
+                from ok.device.capture_methods.nemu_ipc import NemuIpcCaptureMethod
+                if isinstance(capture, NemuIpcCaptureMethod):
+                    return True
+            except Exception:
+                pass
+        return bool(getattr(interaction, 'use_u2', False))
+
+    def default_swipe_duration(self, slow=False):
+        """按当前路径给出合适的 duration（秒）。"""
+        if self.uses_settle_time():
+            return GUIDE_SWIPE_DURATION_IPC
+        return GUIDE_SWIPE_DURATION_ADB_SLOW if slow else GUIDE_SWIPE_DURATION_ADB
+
+    def gesture(self, x1, y1, x2, y2, settle=GUIDE_SCROLL_SETTLE,
+                after=GUIDE_SCROLL_AFTER, duration=None):
         """一次完整的「按住 -> 拖动 -> 松开」。
 
-        注意 ``duration`` 在 MuMu IPC 这条路上被忽略（见模块开头），
-        真正起作用的是：
+        参数作用随路径而变（见 GUIDE_SWIPE_DURATION_*）：
 
-        * ``settle`` —— 拖到终点后继续按住多久才松手（"按住"的手感）；
-        * ``after``  —— 松手后等多久才继续往下走。它同时是**两次滑动之间的间隔**，
-          必须给足（当前 1 秒），否则列表还在惯性滚动时就去匹配模板，
-          会出现「明明在画面上却判定没找到」的假失败。
+        * ``settle``   —— 拖到终点后继续按住多久才松手。**只在 IPC / u2 上有效**；
+        * ``duration`` —— 拖动本身的时长。IPC 上被忽略；**纯 adb 上这是唯一能
+                          影响"被当成拖拽还是甩动"的参数**，所以要按路径取值；
+        * ``after``    —— 松手后等多久才继续往下走。它同时是**两次滑动之间的间隔**，
+                          必须给足（当前 1 秒），否则列表还在惯性滚动时就去匹配，
+                          会出现「明明在画面上却判定没找到」的假失败。
         """
+        if duration is None:
+            duration = self.default_swipe_duration()
         self.log_info(f"[手势] 按住拖动 ({x1},{y1}) -> ({x2},{y2}) "
-                      f"settle={settle}s 之后等 {after}s")
-        self.swipe(x1, y1, x2, y2, duration=0.5, settle_time=settle, after_sleep=after)
+                      f"duration={duration}s settle={settle}s 之后等 {after}s")
+        self.swipe(x1, y1, x2, y2, duration=duration, settle_time=settle, after_sleep=after)
 
     # ------------------------------------------------------------------
     # 指南列表
@@ -237,7 +287,7 @@ class GuideNavTask(PageNavTask):
                 self.log_warning(f"模板 {name} 不存在，指南列表的边界判断会失效，"
                                  f"滑动会一直做到次数上限")
 
-    def scroll_guide(self, to_bottom=True):
+    def scroll_guide(self, to_bottom=True, slow=False):
         """在指南列表上滑一次（手势起止点见模块开头的 GUIDE_SCROLL_* 常量）。
 
         ``to_bottom=True``  -> 想看列表**更下面**的内容：按住 0.777 滑到 0.325
@@ -245,6 +295,8 @@ class GuideNavTask(PageNavTask):
 
         手指方向和内容方向是反的，很容易搞混，所以参数按"想看哪边的内容"命名：
         手指往上拖时内容跟着往上走，看到的是更下面的条目。
+
+        ``slow=True`` 用更慢的拖动（纯 adb 路径滑不动时靠它补救）。
         """
         x = int(self.width * GUIDE_SCROLL_X)
         if to_bottom:
@@ -253,7 +305,7 @@ class GuideNavTask(PageNavTask):
         else:
             y_from = int(self.height * GUIDE_SCROLL_UP_FROM_Y)
             y_to = int(self.height * GUIDE_SCROLL_UP_TO_Y)
-        self.gesture(x, y_from, x, y_to)
+        self.gesture(x, y_from, x, y_to, duration=self.default_swipe_duration(slow=slow))
 
     def list_thumb(self):
         """给指南列表区域算一张小灰度缩略图，用来判断滑动前后画面有没有变。"""
@@ -392,11 +444,19 @@ class GuideNavTask(PageNavTask):
         """朝一个方向滑，每一站都找一次条目；找到返回 Box，否则 None。
 
         边界只由 guide_listtop / guide_listbottom 判定；
-        画面没动又没有边界标志 => 判定为滑动出问题，重试几次仍不行才放弃。
+        画面没动又没有边界标志 => 判定为滑动出问题。
+
+        "滑不动"会分三级处理，不会一次就放弃：
+
+          1. 先用**更慢**的拖动补救一次（纯 adb 路径下，"拖太快被当成甩动"
+             是最常见的原因，见 GUIDE_SWIPE_DURATION_*）
+          2. 仍不动才计入 stuck_streak
+          3. 连续 ``GUIDE_STUCK_TOLERANCE`` 次才放弃这个方向
         """
         direction = '下' if to_bottom else '上'
         boundary = GUIDE_LISTBOTTOM if to_bottom else GUIDE_LISTTOP
         stuck_streak = 0
+        slow_retry_used = False      # 每个方向只做一次"慢速补救"，避免反复拖延
 
         for i in range(1, max_swipes + 1):
             if self.should_stop('指南滑动'):
@@ -423,13 +483,34 @@ class GuideNavTask(PageNavTask):
                 stuck_streak = 0
                 continue
 
-            # ---- 画面没动：不是边界，是滑动出问题 ----
+            # ---- 画面没动：先确认边界 ----
             if to_bottom and self.at_guide_bottom():
                 self.log_info(f"[指南] 已经到底（看到 {GUIDE_LISTBOTTOM}），停止往{direction}找")
                 return None
             if not to_bottom and self.at_guide_top():
                 self.log_info(f"[指南] 已经到顶（看到 {GUIDE_LISTTOP}），停止往{direction}找")
                 return None
+
+            # ---- 不是边界：先用更慢的拖动补救一次 ----
+            # 纯 adb 路径（input swipe）会把 settle_time 丢掉，"拖太快"会让游戏
+            # 当成一次甩动而不是拖拽，列表于是纹丝不动 —— 拉长 duration 通常能救。
+            if not slow_retry_used and not self.uses_settle_time():
+                slow_retry_used = True
+                self.log_warning(
+                    f"[指南] 往{direction}滑之后画面没动，且当前是纯 adb 操作"
+                    f"（不支持 settle_time），改用更慢的拖动"
+                    f"（{GUIDE_SWIPE_DURATION_ADB_SLOW}s）补救一次")
+                before = self.list_thumb()
+                self.scroll_guide(to_bottom=to_bottom, slow=True)
+                box = self.find_entry_on_screen(item_pattern, templates)
+                if box is not None:
+                    self.log_info(f"[指南] 慢速拖动后找到「{item_pattern.pattern}」")
+                    return box
+                if self.list_moved(before, self.list_thumb()):
+                    self.log_info("[指南] 慢速拖动生效了，继续正常滑动")
+                    stuck_streak = 0
+                    continue
+                self.log_warning("[指南] 慢速拖动也没能让画面变化")
 
             stuck_streak += 1
             self.log_error(

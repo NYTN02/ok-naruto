@@ -19,6 +19,7 @@ import glob
 import json
 import os
 import re
+import tempfile
 import unittest
 
 try:
@@ -1148,6 +1149,157 @@ class TestMainPageAndWaitFeature(unittest.TestCase):
                 offenders.append(path)
         self.assertEqual([], offenders,
                          '这些文件还在用模板匹配点冒险入口: ' + ', '.join(offenders))
+
+
+class TestMuMuCompat(unittest.TestCase):
+    """新版 MuMu（15+）的原生 IPC 路径适配。
+
+    背景：ok-script 把 MuMu 12 的目录结构写死了 ——
+        <root>/nx_device/12.0/shell/sdk/external_renderer_ipc.dll
+        vms/MuMuPlayer-12.0-<id>/configs/customer_config.json
+    MuMu 15 实测是 nx_device/15.0/... 和 vms/MuMuPlayer-15.0-0/，DLL 是在的，
+    只是"版本号那一段"没适配。补丁靠 glob 去掉对版本号的依赖。
+    """
+
+    def test_find_ipc_dlls_matches_mumu15_layout(self):
+        """MuMu 15 的两个实际位置都能被找到。"""
+        from src.mumu_compat import find_ipc_dlls
+        with tempfile.TemporaryDirectory() as root:
+            for rel in (r'nx_device\15.0\shell\sdk', r'nx_main\sdk'):
+                d = os.path.join(root, rel.replace('\\', os.sep))
+                os.makedirs(d, exist_ok=True)
+                with open(os.path.join(d, 'external_renderer_ipc.dll'), 'wb') as f:
+                    f.write(b'MZ')
+            found = find_ipc_dlls(root)
+            self.assertEqual(2, len(found), f'应找到 2 个 DLL，实际 {found}')
+            self.assertTrue(any('15.0' in p for p in found), found)
+            self.assertTrue(any('nx_main' in p for p in found), found)
+
+    def test_find_ipc_dlls_matches_mumu12_layout(self):
+        """老的 MuMu 12 结构也要能命中（补丁不能把 12 弄坏）。"""
+        from src.mumu_compat import find_ipc_dlls
+        with tempfile.TemporaryDirectory() as root:
+            for rel in (r'nx_device\12.0\shell\sdk', r'shell\sdk'):
+                d = os.path.join(root, rel.replace('\\', os.sep))
+                os.makedirs(d, exist_ok=True)
+                with open(os.path.join(d, 'external_renderer_ipc.dll'), 'wb') as f:
+                    f.write(b'MZ')
+            self.assertEqual(2, len(find_ipc_dlls(root)))
+
+    def test_find_ipc_dlls_does_not_depend_on_version_number(self):
+        """版本号换成以后的新版本（比如 16.0）也要能找到 —— 不能再写死。"""
+        from src.mumu_compat import find_ipc_dlls
+        with tempfile.TemporaryDirectory() as root:
+            d = os.path.join(root, 'nx_device', '16.0', 'shell', 'sdk')
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, 'external_renderer_ipc.dll'), 'wb') as f:
+                f.write(b'MZ')
+            self.assertEqual(1, len(find_ipc_dlls(root)))
+
+    def test_find_ipc_dlls_empty_for_missing_folder(self):
+        from src.mumu_compat import find_ipc_dlls
+        self.assertEqual([], find_ipc_dlls(None))
+        self.assertEqual([], find_ipc_dlls(r'Z:\definitely\not\here'))
+
+    def test_keep_alive_config_globbed_by_version(self):
+        """后台保活配置按 vms/MuMuPlayer-*/ 匹配，且优先当前实例。"""
+        from src.mumu_compat import find_keep_alive_configs
+        with tempfile.TemporaryDirectory() as root:
+            for name in ('MuMuPlayer-15.0-0', 'MuMuPlayer-15.0-1'):
+                d = os.path.join(root, 'vms', name, 'configs')
+                os.makedirs(d, exist_ok=True)
+                with open(os.path.join(d, 'customer_config.json'), 'w', encoding='utf-8') as f:
+                    f.write('{}')
+            found = find_keep_alive_configs(root, player_id=1)
+            self.assertEqual(2, len(found))
+            self.assertTrue(
+                found[0].endswith(f'MuMuPlayer-15.0-1{os.sep}configs{os.sep}customer_config.json'),
+                f'当前实例应排在最前，实际 {found}')
+        self.assertEqual([], find_keep_alive_configs(r'Z:\definitely\not\here'))
+
+    def test_apply_is_idempotent_and_safe(self):
+        """apply() 要能重复调用，且不能把启动搞崩。"""
+        import src.mumu_compat as mc
+        self.assertTrue(mc.apply())
+        self.assertTrue(mc.apply())
+        self.assertTrue(mc._patched)
+        from ok.capture.adb.nemu_ipc import NemuIpcImpl
+        self.assertTrue(getattr(NemuIpcImpl.__init__, '_mumu_compat', False))
+
+    def test_patch_preserves_original_behaviour_first(self):
+        """补丁必须先走 ok-script 原逻辑 —— MuMu 12 行为不能变。"""
+        with open('src/mumu_compat.py', encoding='utf-8') as f:
+            src = f.read()
+        body = src.split('def patched_init')[1].split('patched_init._mumu_compat')[0]
+        self.assertIn('original_init(self', body, '没有调用原始 init')
+        self.assertLess(body.index('original_init(self'), body.index('find_ipc_dlls('),
+                        '扩展查找必须在原逻辑失败之后才做')
+        self.assertIn('original_error = e', body,
+                      'except ... as e 的变量块外会被删除，必须另存（否则 NameError）')
+
+    def test_main_applies_patch_before_start(self):
+        """两个入口都要在 ok.start() 之前打补丁。
+
+        注意用 _code_only 去掉注释：main.py 的注释里就写着「必须在 ok.start() 之前」，
+        直接 search 会命中注释、把顺序判断搞反（这里已经栽过一次）。
+        """
+        for rel in ('main.py', 'main_debug.py'):
+            with open(rel, encoding='utf-8') as f:
+                code = _code_only(f.read())
+            self.assertIn('apply_mumu_compat()', code, f'{rel} 没打补丁')
+            self.assertIn('ok.start()', code, f'{rel} 里没看到 ok.start()')
+            self.assertLess(code.index('apply_mumu_compat()'), code.index('ok.start()'),
+                            f'{rel} 里补丁必须在 ok.start() 之前')
+
+
+class TestGuideAdbSwipeCompensation(unittest.TestCase):
+    """纯 adb 路径丢掉 settle_time 的补偿。
+
+    ok-script 的 swipe 第三条路是 ``input swipe x1 y1 x2 y2 <ms>``，
+    settle_time 被完全丢弃 —— 我们"拖到终点按住 0.35 秒"的意图退化成一次快速甩动，
+    实测这种列表根本不滚（用户反馈：指南里上下滑动失灵，往下找滑不动）。
+    打包版没有 uiautomator2，所以 ADB 用户必定走这条路，必须补偿。
+    """
+
+    def test_duration_differs_by_path(self):
+        from src.tasks.guide_nav import (
+            GUIDE_SWIPE_DURATION_ADB,
+            GUIDE_SWIPE_DURATION_ADB_SLOW,
+            GUIDE_SWIPE_DURATION_IPC,
+        )
+        self.assertLess(GUIDE_SWIPE_DURATION_IPC, GUIDE_SWIPE_DURATION_ADB,
+                        '纯 adb 的拖动时长必须比 IPC 长，否则会被当成甩动')
+        self.assertLess(GUIDE_SWIPE_DURATION_ADB, GUIDE_SWIPE_DURATION_ADB_SLOW)
+
+    def test_gesture_uses_path_aware_duration(self):
+        from src.tasks.guide_nav import GuideNavTask
+        self.assertTrue(callable(getattr(GuideNavTask, 'uses_settle_time', None)))
+        self.assertTrue(callable(getattr(GuideNavTask, 'default_swipe_duration', None)))
+        with open('src/tasks/guide_nav.py', encoding='utf-8') as f:
+            src = f.read()
+        body = src.split('    def gesture')[1].split('def uses_settle_time')[0]
+        self.assertIn('duration = self.default_swipe_duration()', body,
+                      'gesture 没有按路径取 duration')
+        self.assertIn('duration=duration', body, 'gesture 没把 duration 传给 swipe')
+        uses = src.split('def uses_settle_time')[1].split('def default_swipe_duration')[0]
+        self.assertIn('NemuIpcCaptureMethod', uses, '没有判断原生 IPC')
+        self.assertIn('use_u2', uses, '没有判断 uiautomator2')
+
+    def test_sweep_escalates_to_slow_before_giving_up(self):
+        """滑不动时先慢速补救，再计入 stuck —— 不能一上来就判失败。"""
+        with open('src/tasks/guide_nav.py', encoding='utf-8') as f:
+            src = f.read()
+        sweep = src.split('def _sweep_entry')[1].split('def click_below')[0]
+        self.assertIn('slow=True', sweep, '没有慢速补救')
+        self.assertIn('slow_retry_used', sweep, '慢速补救没有次数控制（会反复拖延）')
+        self.assertLess(sweep.index('slow_retry_used'), sweep.rindex('stuck_streak += 1'),
+                        '慢速补救必须在 stuck_streak 自增之前')
+
+    def test_scroll_guide_accepts_slow(self):
+        with open('src/tasks/guide_nav.py', encoding='utf-8') as f:
+            src = f.read()
+        self.assertIn('def scroll_guide(self, to_bottom=True, slow=False)', src)
+        self.assertIn('default_swipe_duration(slow=slow)', src)
 
 
 if __name__ == '__main__':
