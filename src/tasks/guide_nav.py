@@ -573,12 +573,18 @@ class GuideNavTask(PageNavTask):
                 self.log_warning("[指南] 内缩起止线也没能让画面变化")
 
             stuck_streak += 1
-            self.log_error(
-                f"[指南] 往{direction}滑之后画面没有变化，"
-                f"但也没看到 {boundary} —— 判定为滑动出问题（手势没生效），"
-                f"第 {stuck_streak}/{GUIDE_STUCK_TOLERANCE} 次")
+            # 仍然按用户当初的要求"判定为滑动出问题"（不能悄悄当成到头了），
+            # 但级别用 warning —— 实测更常见的原因是"这个方向本来就已经到头"：
+            # 指南列表**不保证一打开就停在顶部**，初始位置跟账号状态有关。
+            # 用户日志里就能看到同一个人两次运行，一次一打开就认出「忍具锻造」
+            # （=已经在底部），另一次没有。所以报 ERROR 会把人吓到以为坏了。
+            self.log_warning(
+                f"[指南] 往{direction}滑之后画面没有变化，也没看到 {boundary} —— "
+                f"判定为滑动出问题（手势没生效），第 {stuck_streak}/{GUIDE_STUCK_TOLERANCE} 次；"
+                f"也可能是这个方向本来就已经到头")
             if stuck_streak >= GUIDE_STUCK_TOLERANCE:
-                self.log_error(f"[指南] 连续 {stuck_streak} 次滑不动，放弃往{direction}找")
+                self.log_warning(f"[指南] 放弃往{direction}找（换另一个方向继续找，"
+                                 f"两边都扫过才算找遍整个列表）")
                 return None
             self.sleep(0.5)
 

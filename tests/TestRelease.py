@@ -905,9 +905,15 @@ class TestGuideEntry(unittest.TestCase):
         # 判定边界时必须看模板
         self.assertIn('at_guide_bottom()', sweep)
         self.assertIn('at_guide_top()', sweep)
-        # 画面没动但没边界标志 -> 判为滑动出问题（error），而不是边界
+        # 画面没动但没边界标志 -> 仍要判为滑动出问题（不能悄悄当成到头）
         self.assertIn('滑动出问题', sweep)
-        self.assertIn('log_error', sweep)
+        # 但级别要用 warning，不能是 error —— 实测更常见的原因是
+        # "这个方向本来就已经到头"（指南列表不保证一打开就在顶部），
+        # 报 ERROR 会让用户以为坏了。用户日志验证过：往下 20/20 没动、
+        # 往上 78% 能动，条目最终全部找到，功能其实是好的。
+        self.assertIn('log_warning', sweep)
+        self.assertNotIn('log_error', sweep,
+                         '画面没动多半是到头了，不该报 error（会误导用户）')
         # 不能出现"没动就直接 return/break 说已到头"的写法
         self.assertNotIn('画面没有变化（已到', sweep,
                          '不能把"画面没动"直接当成已到边界')
