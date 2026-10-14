@@ -44,6 +44,10 @@ from src.tasks.guide_nav import (
 DIRECTION_DOWN = '往下找'
 DIRECTION_UP = '往上找'
 DIRECTION_BOTH = '两个都测'
+
+# 滑不动时"退出指南再重进"最多试几次（用户指定 2 次）
+REENTRY_MAX = 2
+REENTRY_WAIT = 1.2
 DIRECTIONS = [DIRECTION_BOTH, DIRECTION_DOWN, DIRECTION_UP]
 
 LINE_USER = '用户线'
@@ -134,6 +138,26 @@ class DebugGuideScrollTask(GuideNavTask):
         except Exception:
             return -1
 
+    def reenter_guide(self):
+        """退出指南 -> 回主页面 -> 重新点开指南。
+
+        用户实测：用鼠标手动操作也能复现"滑不动"，说明那一刻**界面本身**
+        不接受滑动（不是注入的问题）。所以用"退出再重进"把界面状态重置掉，
+        比继续折腾注入方式更靠谱。
+        """
+        self.log_info("[重进] 点 guide_cancel 退出指南")
+        if not self.click_feature(GUIDE_CANCEL, time_out=3.0):
+            self.log_warning(f"[重进] 没找到 {GUIDE_CANCEL}")
+        self.sleep(REENTRY_WAIT)
+
+        if not self.is_main_page():
+            self.log_info("[重进] 当前不在主页面，先退回去")
+            self.back_to_main(max_rounds=12, interval=0.8, log=False)
+
+        ok = self.open_guide()          # 会确认"真的进去了"
+        self.log_info(f"[重进] 重新打开指南: {'成功' if ok else '失败'}")
+        return ok
+
     def _test_one_direction(self, to_bottom):
         """测一个方向，返回 (方向名, 平均差异, 最大差异, 次数)。"""
         direction = '往下找' if to_bottom else '往上找'
@@ -158,6 +182,7 @@ class DebugGuideScrollTask(GuideNavTask):
                       f"（False = 纯 adb，settle_time 会被丢掉）")
 
         diffs = []
+        reentry_used = 0
         for i in range(1, times + 1):
             if self.should_stop('指南滑动测试'):
                 break
@@ -186,25 +211,31 @@ class DebugGuideScrollTask(GuideNavTask):
                           f"  到顶={at_top} 到底={at_bottom}")
             if diff == 0 and sig_before == sig_after:
                 self.log_warning(f"[{direction}] 差异恰好 0 且指纹完全相同 —— "
-                                 f"多半是触摸状态卡住了（注入的手指没抬起来）")
-                # ★ 直接验证修复：调清理手势，然后再滑一次看恢复没有
+                                 f"界面此刻不接受滑动（用户实测手动也复现）")
+                if reentry_used >= REENTRY_MAX:
+                    self.log_warning(f"[{direction}] 已经重进过 {REENTRY_MAX} 次，"
+                                     f"不再重试 —— 这个方向确实滑不动")
+                    continue
+                reentry_used += 1
+                self.log_warning(f"[{direction}] 退出指南再重进，"
+                                 f"第 {reentry_used}/{REENTRY_MAX} 次")
+                if not self.reenter_guide():
+                    self.log_warning(f"[{direction}] 重进指南失败，跳过这一次补救")
+                    continue
+                # 重进后再滑一次，看恢复没有
                 before2 = self.list_thumb()
                 sig_b2 = self.thumb_sig(before2)
-                self.cleanup_stuck_touch()
                 self.scroll_guide(to_bottom=to_bottom, inner=inner)
                 after2 = self.list_thumb()
                 sig_a2 = self.thumb_sig(after2)
                 diff2 = self.diff_value(before2, after2)
                 if diff2 > 0:
-                    self.log_info(f"[{direction}] ✓ 清理手势之后恢复了！"
-                                  f"差异 {diff2:.3f}，指纹 {sig_b2} -> {sig_a2}"
-                                  f" —— 说明「注入的小拖动」能代替手动滑一下")
+                    self.log_info(f"[{direction}] ✓ 重进之后恢复了！差异 {diff2:.3f}，"
+                                  f"指纹 {sig_b2} -> {sig_a2}")
+                    diffs.append(diff2)
                 else:
-                    self.log_warning(f"[{direction}] ✗ 清理手势**没用**，"
-                                     f"指纹 {sig_b2} -> {sig_a2} —— "
-                                     f"说明「注入的小拖动」和真实触摸不等效，"
-                                     f"得换别的办法（比如走 ADB 通道点一下）")
-            self.sleep(interval)
+                    self.log_warning(f"[{direction}] ✗ 重进之后**仍然滑不动**，"
+                                     f"指纹 {sig_b2} -> {sig_a2}")
 
         if not diffs:
             self.log_warning(f"[{direction}] 一次都没滑成（可能已在列表端点）")
