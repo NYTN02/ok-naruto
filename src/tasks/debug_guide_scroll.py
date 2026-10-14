@@ -121,6 +121,19 @@ class DebugGuideScrollTask(GuideNavTask):
             return [False]
         return [True, False]
 
+    def thumb_sig(self, thumb):
+        """缩略图的"指纹"：像素和。用来判断画面到底有没有换过。
+
+        差异恰好 0.000 时分不清"手势没生效"和"截图没刷新"，
+        指纹能帮上忙 —— 换手势后指纹还是同一个值，就更像截图没刷新。
+        """
+        if thumb is None:
+            return -1
+        try:
+            return int(thumb.sum())
+        except Exception:
+            return -1
+
     def _test_one_direction(self, to_bottom):
         """测一个方向，返回 (方向名, 平均差异, 最大差异, 次数)。"""
         direction = '往下找' if to_bottom else '往上找'
@@ -158,13 +171,23 @@ class DebugGuideScrollTask(GuideNavTask):
                 break
 
             before = self.list_thumb()
+            sig_before = self.thumb_sig(before)
             # 直接用底层手势，不走 _sweep_entry 的补救逻辑 ——
             # 这里要测的是"这一种手势本身行不行"，加了补救就看不清了
             self.scroll_guide(to_bottom=to_bottom, inner=inner)
             after = self.list_thumb()
+            sig_after = self.thumb_sig(after)
             diff = self.diff_value(before, after)
             diffs.append(diff)
-            self.log_info(f"[{direction}] 第 {i}/{times} 次：画面差异 {diff:.3f}")
+            at_top = self.at_guide_top()
+            at_bottom = self.at_guide_bottom()
+            self.log_info(f"[{direction}] 第 {i}/{times} 次：画面差异 {diff:.3f}"
+                          f"  指纹 {sig_before} -> {sig_after}"
+                          f"  到顶={at_top} 到底={at_bottom}")
+            if diff == 0 and sig_before == sig_after:
+                self.log_warning(f"[{direction}] 差异恰好 0 且指纹完全相同 —— "
+                                 f"两种可能：手势真没生效，或者**截图没刷新**"
+                                 f"（下一步换手势/多等一会再看指纹会不会变）")
             self.sleep(interval)
 
         if not diffs:
