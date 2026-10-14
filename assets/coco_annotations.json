@@ -245,6 +245,12 @@
             "file_name": "images/5.png",
             "width": 1600,
             "height": 900
+        },
+        {
+            "id": 47,
+            "file_name": "images/0.png",
+            "width": 1600,
+            "height": 900
         }
     ],
     "annotations": [
@@ -1456,6 +1462,19 @@
             ],
             "area": 3348,
             "iscrowd": 0
+        },
+        {
+            "id": 94,
+            "image_id": 47,
+            "category_id": 94,
+            "bbox": [
+                714,
+                175,
+                422,
+                56
+            ],
+            "area": 23632,
+            "iscrowd": 0
         }
     ],
     "categories": [
@@ -1922,6 +1941,11 @@
         {
             "id": 93,
             "name": "share_wechat",
+            "supercategory": ""
+        },
+        {
+            "id": 94,
+            "name": "mission_none",
             "supercategory": ""
         }
     ]

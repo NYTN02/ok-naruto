@@ -433,33 +433,47 @@ class TestDailyTaskHardening(unittest.TestCase):
                 f'必须继承 PageNavTask',
             )
 
-    def test_mission_two_phase_flow(self):
-        """任务集会所：先只领奖励，再专门进去接取；接取最多 3 次（首次 + 重试 2 次）。
+    def test_mission_single_phase_flow(self):
+        """任务集会所：**一次进入**里先领奖再接取（不再分两阶段）。
 
         用户指定的流程：
-            第 1 次进入：只领取奖励，然后回主页面
-            第 2 次进入：接取（尝试 1）-> 没接到就回主页重进（尝试 2）（尝试 3）
-            3 次都没接到 -> 判定为异常并跳过
+            进入 -> 循环领奖（没有「可领取」或出现 mission_none 就结束）
+                 -> 接着接取任务
+            接取没成功 -> 回主页面重新进入再试（ACCEPT_ATTEMPTS 次）
         """
-        self.assertEqual(3, ACCEPT_ATTEMPTS, '接取应最多尝试 3 次（首次 + 重试 2 次）')
-        for name in ('enter_mission_hall', 'exit_mission_hall', 'accept_missions'):
-            self.assertTrue(callable(getattr(MissionTask, name, None)),
-                            f'缺少 {name}（流程被拆成这几步）')
+        from src.tasks.mission_task import (
+            ACCEPT_ATTEMPTS,
+            CLOSE_REL,
+            MISSION_NONE,
+            MissionTask,
+        )
+        self.assertEqual(3, ACCEPT_ATTEMPTS, '接取最多尝试 3 次（首次 + 重试 2 次）')
+        self.assertEqual('mission_none', MISSION_NONE)
+        self.assertEqual((0.952, 0.051), CLOSE_REL, '展示界面右上角关闭位置')
+        for name in ('enter_mission_hall', 'exit_mission_hall',
+                     'collect_rewards', 'accept_missions'):
+            self.assertTrue(callable(getattr(MissionTask, name, None)), f'缺少 {name}')
+
         with open('src/tasks/mission_task.py', encoding='utf-8') as f:
-            src = f.read()
-        run_body = src.split('def enter_mission_hall')[0]      # 只看 run()
-        # 阶段 1：先只领奖
-        self.assertIn('只领取奖励', run_body, '没有"第 1 次进入只领奖"这一步')
-        # 阶段 2：接取循环受 ACCEPT_ATTEMPTS 控制
-        self.assertIn('range(1, ACCEPT_ATTEMPTS + 1)', run_body,
-                      '接取没有按 ACCEPT_ATTEMPTS 重试')
-        # 每次失败都要回主页面重新进入
-        self.assertIn('back_to_main(', run_body, '失败后没有回主页面')
-        self.assertIn('enter_mission_hall()', run_body, '没有重新进入任务集会所')
-        # 3 次都不行要判为异常并跳过
-        self.assertIn('判定为异常', run_body, '没有"判为异常并跳过"的收尾')
-        # 不应该再有旧的一次性 run_once
-        self.assertNotIn('def run_once', src, '旧的 run_once 应该已经被拆掉')
+            src2 = f.read()
+        run_body = src2.split('def collect_rewards')[0]        # 只看 run()
+        # 不再是两阶段
+        self.assertNotIn('阶段 1', run_body, '不该再有"阶段 1 只领奖"')
+        self.assertNotIn('阶段 2', run_body, '不该再有"阶段 2 接取"')
+        # 领奖在接取之前，且在**同一轮**里
+        self.assertLess(run_body.index('self.collect_rewards()'),
+                        run_body.index('self.accept_missions()'),
+                        '必须先领奖再接取')
+        body = src2.split('def collect_rewards')[1].split('def enter_mission_hall')[0]
+        # 两种结束信号
+        self.assertIn('MISSION_NONE', body, '没有检查 mission_none')
+        self.assertIn('可领取', body, '没有检测「可领取」')
+        # ★ 关键：画面没变化时不能盲点屏幕中心
+        self.assertIn('screen_changed(', body, '没有检测画面变化')
+        self.assertIn('不盲点', body, '没有"画面没变就不盲点"的保护')
+        self.assertNotIn('click_relative(0.5, 0.5)', body,
+                         '还在盲点屏幕中心 —— 会误点到任务条目上')
+        self.assertIn('CLOSE_REL', body, '没有用固定的右上角关闭位置')
 
     def test_pointrace_entry_retry(self):
         """积分赛：没检测到并点到「挑战」时，回主页面重进，只重试一次。"""

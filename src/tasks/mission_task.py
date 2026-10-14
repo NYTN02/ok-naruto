@@ -14,6 +14,27 @@ ACCEPT_ATTEMPTS = 3
 # 一轮里最多尝试接取几个任务
 MAX_ACCEPT_LOOP = 15
 
+# ---------------------------------------------------------------------------
+# 领奖励（用户指定的流程）
+#
+# 点「可领取」→ **检测画面有没有变化** → 分两种情况：
+#   A. 弹「是否一键领取所有奖励」确认框 → 点「确定」
+#   B. 没有确认框但画面变了（直接弹物品展示界面）→ 点右上角 CLOSE_REL 关掉
+# 然后回到循环顶部：没有「可领取」或看到 MISSION_NONE，就开始接取任务。
+#
+# ⚠️ 关键：**画面没变化时不能盲点**。以前的实现是"没找到确定就点屏幕中心"，
+#    而那时可能什么都没弹出来 —— 屏幕中央很可能就是任务条目，一点就打开了
+#    别的界面，后面的接取逻辑全乱。现在检测到没变化直接收手。
+# ---------------------------------------------------------------------------
+MISSION_NONE = 'mission_none'      # 领奖完成后出现的标记（= 可以开始接取了）
+CLOSE_REL = (0.952, 0.051)         # 物品展示界面右上角的关闭位置（用户实测）
+MAX_COLLECT_LOOP = 20              # 领奖循环上限
+COLLECT_CLICK_WAIT = 0.6           # 点「可领取」后等多久再判断画面变化
+CONFIRM_TEXT = '确定'               # 「是否一键领取所有奖励」确认框的按钮
+CONFIRM_TIMEOUT = 1.5
+CONFIRM_WAIT = 1.2
+CLOSE_WAIT = 1.0                   # 点右上角关闭后等 1 秒（用户指定）
+
 # 接取过程的三种结果
 NO_MORE = 'no_more'      # 画面上已经没有「接取」了，正常收尾
 FAILED = 'failed'        # 点了「接取」却没走到「出发」
@@ -30,30 +51,22 @@ class MissionTask(GuideNavTask):
         self._last_round_had_attempt = False
 
     def run(self):
-        """任务集会所：先只领奖励，再专门进去接取任务（最多 3 次）。
+        """任务集会所：**一次进入**里完成"领奖励 + 接取任务"。
 
-        用户指定的流程：
+        用户指定的流程（不再分成两次进入）：
 
-            第 1 次进入：**只领取奖励**，然后退回主页面
-            第 2 次进入：开始接取任务          ← 接取尝试 1
-              没接取到 -> 回主页面再进入       ← 接取尝试 2
-              没接取到 -> 回主页面再进入       ← 接取尝试 3
-              还是没接取到 -> 判定为异常，跳过任务集会所
+            进入任务集会所
+              -> 循环领奖励，直到**没有「可领取」**或**出现 mission_none**
+              -> 接着接取任务（就在同一个界面里）
+            接取没成功 -> 回主页面重新进入再试（最多 ACCEPT_ATTEMPTS 次）
+            连续几次都不行 -> 判定为异常，跳过任务集会所
 
-        这样把"领奖"和"接取"分成两次访问，避免接取失败时把领奖也一起赔进去；
-        接取最多试 3 次（首次 + 重试 2 次）。
+        为什么不再分两阶段：领奖和接取本来就在同一个界面，来回进出只是白等；
+        而且分阶段时"接取失败"会把领奖也赔进去。现在一次做完，
+        只有**接取没成功**才回主页面重进。
         """
         self.log_info("开始任务集会所...")
 
-        # ---------- 阶段 1：只领取奖励 ----------
-        if not self.enter_mission_hall():
-            self.log_error("第一次进入任务集会所失败，任务终止")
-            return
-        self.log_info("第 1 次进入：只领取奖励")
-        self.collect_all_rewards()
-        self.exit_mission_hall()
-
-        # ---------- 阶段 2：专门接取任务，最多 ACCEPT_ATTEMPTS 次 ----------
         for attempt in range(1, ACCEPT_ATTEMPTS + 1):
             if self.should_stop('任务集会所'):
                 return
@@ -61,7 +74,8 @@ class MissionTask(GuideNavTask):
             if not self.enter_mission_hall():
                 self.log_warning(f"第 {attempt} 次进入任务集会所失败")
             else:
-                self.log_info(f"第 {attempt}/{ACCEPT_ATTEMPTS} 次进入：开始接取任务")
+                self.log_info(f"第 {attempt}/{ACCEPT_ATTEMPTS} 次进入")
+                self.collect_rewards()
                 accepted, ok = self.accept_missions()
                 self.exit_mission_hall()
 
@@ -81,6 +95,49 @@ class MissionTask(GuideNavTask):
 
         self.log_error(f"连续 {ACCEPT_ATTEMPTS} 次都没接取到任务，判定为异常，跳过任务集会所")
         self.back_to_main(max_rounds=15, interval=0.8, log=False)
+
+    def collect_rewards(self, max_loops=MAX_COLLECT_LOOP):
+        """领奖励：循环点「可领取」，直到没有可领的或出现 MISSION_NONE。
+
+        每一步都**先检测画面有没有变化**再决定下一步做什么（见文件开头的说明）。
+        """
+        self.log_info("[领奖] 开始领取奖励")
+        for i in range(1, max_loops + 1):
+            if self.should_stop('任务集会所领奖'):
+                return
+
+            # 领奖结束的两种信号：看到 mission_none，或没有「可领取」了
+            if self._safe_find_one(MISSION_NONE):
+                self.log_info(f"[领奖] 看到 {MISSION_NONE}，领奖结束，开始接取任务")
+                return
+
+            before = self.screen_thumb()
+            if not self.click_ocr_text("可领取", time_out=1.0):
+                self.log_info("[领奖] 画面上没有「可领取」了，领奖结束")
+                return
+            self.log_info(f"[领奖] 第 {i} 次点击「可领取」")
+            self.sleep(COLLECT_CLICK_WAIT)
+
+            if not self.screen_changed(before, self.screen_thumb()):
+                # 画面没变 = 这一下没生效（或者本来就没东西可领）。
+                # **不能盲点** —— 屏幕中央多半是任务条目，点在它上面会打开别的界面。
+                self.log_warning("[领奖] 点了「可领取」但画面没变化，"
+                                 "不盲点（避免误点到任务条目），结束领奖")
+                return
+
+            # A. 「是否一键领取所有奖励」确认框
+            if self.click_ocr_text(CONFIRM_TEXT, time_out=CONFIRM_TIMEOUT):
+                self.log_info("[领奖] 点击了「确定」（一键领取所有奖励）")
+                self.sleep(CONFIRM_WAIT)
+                continue
+
+            # B. 没有确认框但画面变了 -> 直接弹了物品展示界面，点右上角关掉
+            self.log_warning(f"[领奖] 没有确认框但画面变了，"
+                             f"点右上角 rel{CLOSE_REL} 关掉展示界面")
+            self.click_relative(*CLOSE_REL)
+            self.sleep(CLOSE_WAIT)      # 用户指定：等 1 秒再看有没有「可领取」
+
+        self.log_warning(f"[领奖] 达到循环上限 {max_loops} 次，先去做接取")
 
     # ------------------------------------------------------------------
     # 步骤拆分
@@ -126,8 +183,8 @@ class MissionTask(GuideNavTask):
                 return accepted, False
 
             accepted += 1
-            # 回到集会所后，可能又出现新的"可领取"
-            self.collect_all_rewards()
+            # 回到集会所后可能又冒出「可领取」，顺手再收一次
+            self.collect_rewards()
 
         return accepted, True
 
@@ -245,30 +302,6 @@ class MissionTask(GuideNavTask):
             return True
         return False
 
-    def collect_all_rewards(self):
-        """循环点击所有'可领取'，处理确认框和领取后的物品展示界面"""
-        count = 0
-        for _ in range(20):
-            if not self.click_ocr_text("可领取", time_out=1.0):
-                break
-            self.sleep(0.5)
-            count += 1
-
-            # 情况A：弹出"是否一键领取所有奖励"确认框
-            if self.click_ocr_text("确定", time_out=1.5):
-                self.log_info("点击了'确定'，一键领取所有奖励")
-                self.sleep(1.2)
-                # 展示界面出现后，点屏幕中间关闭
-                self.click_relative(0.5, 0.5)
-                self.sleep(0.8)
-            else:
-                # 情况B：没有确认框，直接弹出物品展示界面
-                # 也点一下屏幕中间，把展示界面关掉
-                self.click_relative(0.5, 0.5)
-                self.sleep(0.8)
-
-        if count > 0:
-            self.log_info(f"共点击 {count} 次'可领取'")
 
     def click_relative(self, rel_x, rel_y):
         """按相对坐标点击（0~1）"""

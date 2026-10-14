@@ -167,7 +167,10 @@ GUIDE_SCROLL_MAX = 20
 # ---------------------------------------------------------------------------
 GUIDE_LIST_SIG_X1, GUIDE_LIST_SIG_X2 = 0.05, 0.30   # 列表区域（相对坐标）
 GUIDE_LIST_SIG_Y1, GUIDE_LIST_SIG_Y2 = 0.18, 0.80
-GUIDE_LIST_MOVE_THRESHOLD = 2.0   # 平均灰度差小于这个值就认为"没动"
+GUIDE_LIST_MOVE_THRESHOLD = 2.0
+# 判断画面有没有变化用的阈值（整屏缩略图的平均灰度差）。
+# 用在领奖流程里：点「可领取」之后要确认画面确实变了，否则不能盲点下一步。
+SCREEN_CHANGE_THRESHOLD = 2.0   # 平均灰度差小于这个值就认为"没动"
 GUIDE_STUCK_TOLERANCE = 2         # 连续几次滑不动就放弃这个方向
 
 # 各等待时长（秒）
@@ -197,6 +200,9 @@ GO_TEXT_PATTERN = re.compile(r'前往')
 ENTRY_MODE_KEY = '进入方式'
 ENTRY_MODE_GUIDE = '忍界指引'
 ENTRY_MODE_REWARD = '奖励'
+# 「奖励」进入方式已停用（实测有问题：左右滑不动、条目定位不稳）。
+# 保留常量与 enter_reward 的实现，以后要恢复只需把选项加回来 + 这里改 True。
+REWARD_MODE_ENABLED = False
 
 # 走「奖励」（每日任务）时需要的东西
 REWARD_ENTRY = 'main_reward'          # 主页面上的每日任务/奖励入口
@@ -388,6 +394,31 @@ class GuideNavTask(PageNavTask):
             y_to = int(self.height * GUIDE_SCROLL_UP_TO_Y)
         self.gesture(x, y_from, x, y_to, duration=self.default_swipe_duration(slow=slow))
 
+    def screen_thumb(self):
+        """整屏小灰度缩略图，用来判断"画面有没有变化"。
+
+        和 list_thumb 的区别：那个只看指南左侧列表那一块，这个是整屏 ——
+        领奖时的确认框/物品展示界面会在屏幕中间，得看全屏。
+        """
+        try:
+            frame = self.frame
+        except Exception as e:
+            self.log_debug(f"取画面失败，跳过「有没有变化」判断: {e}")
+            return None
+        if frame is None:
+            return None
+        return cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), (32, 32)).astype('int16')
+
+    def screen_changed(self, before, after, threshold=SCREEN_CHANGE_THRESHOLD):
+        """画面是否有明显变化；拿不到画面时保守地当成"有变化"。"""
+        if before is None or after is None:
+            return True
+        diff = float(np.abs(before - after).mean())
+        changed = diff > threshold
+        self.log_info(f"[画面] 变化差异 {diff:.2f}（阈值 {threshold}）-> "
+                      f"{'有变化' if changed else '没变化'}")
+        return changed
+
     def list_thumb(self):
         """给指南列表区域算一张小灰度缩略图，用来判断滑动前后画面有没有变。"""
         try:
@@ -439,9 +470,12 @@ class GuideNavTask(PageNavTask):
             传 None 表示这个任务在每日任务里**没有**，那就不提供「奖励」选项
             （比如排行榜）—— 免得用户选了以后永远进不去。
         """
+        # ⚠️ 「奖励」（每日任务）方式已按要求**停用** —— 实测有问题
+        # （左右滑不动、条目定位不稳）。这里仍然收下 reward_item_text 但不使用，
+        # 各任务的调用点不用改；以后要恢复只需把下面两行放回来。
         options = [ENTRY_MODE_GUIDE]
-        if reward_item_text:
-            options.append(ENTRY_MODE_REWARD)
+        # if reward_item_text:
+        #     options.append(ENTRY_MODE_REWARD)
         self.default_config[ENTRY_MODE_KEY] = ENTRY_MODE_GUIDE
         self.config_type[ENTRY_MODE_KEY] = {'type': 'drop_down', 'options': options}
         self.config_description[ENTRY_MODE_KEY] = (
@@ -466,7 +500,8 @@ class GuideNavTask(PageNavTask):
                       item_feature=None):
         """按「进入方式」选项决定走哪条路进入玩法。"""
         mode = self.entry_mode()
-        if mode == ENTRY_MODE_REWARD and reward_item_text:
+        # 「奖励」方式已停用：即使配置里还残留旧值也强制走指南
+        if mode == ENTRY_MODE_REWARD and reward_item_text and REWARD_MODE_ENABLED:
             self.log_info(f"进入方式：{ENTRY_MODE_REWARD}（每日任务）")
             return self.enter_reward(reward_item_text)
         self.log_info(f"进入方式：{ENTRY_MODE_GUIDE}（指南列表）")
