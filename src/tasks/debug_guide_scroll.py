@@ -186,8 +186,24 @@ class DebugGuideScrollTask(GuideNavTask):
                           f"  到顶={at_top} 到底={at_bottom}")
             if diff == 0 and sig_before == sig_after:
                 self.log_warning(f"[{direction}] 差异恰好 0 且指纹完全相同 —— "
-                                 f"两种可能：手势真没生效，或者**截图没刷新**"
-                                 f"（下一步换手势/多等一会再看指纹会不会变）")
+                                 f"多半是触摸状态卡住了（注入的手指没抬起来）")
+                # ★ 直接验证修复：调清理手势，然后再滑一次看恢复没有
+                before2 = self.list_thumb()
+                sig_b2 = self.thumb_sig(before2)
+                self.cleanup_stuck_touch()
+                self.scroll_guide(to_bottom=to_bottom, inner=inner)
+                after2 = self.list_thumb()
+                sig_a2 = self.thumb_sig(after2)
+                diff2 = self.diff_value(before2, after2)
+                if diff2 > 0:
+                    self.log_info(f"[{direction}] ✓ 清理手势之后恢复了！"
+                                  f"差异 {diff2:.3f}，指纹 {sig_b2} -> {sig_a2}"
+                                  f" —— 说明「注入的小拖动」能代替手动滑一下")
+                else:
+                    self.log_warning(f"[{direction}] ✗ 清理手势**没用**，"
+                                     f"指纹 {sig_b2} -> {sig_a2} —— "
+                                     f"说明「注入的小拖动」和真实触摸不等效，"
+                                     f"得换别的办法（比如走 ADB 通道点一下）")
             self.sleep(interval)
 
         if not diffs:
