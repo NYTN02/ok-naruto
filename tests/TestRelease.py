@@ -2261,5 +2261,46 @@ class TestGuideStuckTouchCleanup(unittest.TestCase):
         self.assertIn('reset_scene()', body, '点完要 reset_scene 让画面刷新')
 
 
+class TestGuideTasksShareOneSweep(unittest.TestCase):
+    """所有"在指南里滑动"的任务必须走同一条 _sweep_entry。
+
+    这样"滑不动就换另一条起止线"的修复才能**一处改动覆盖全部任务**；
+    如果哪个任务自己写了一套滑动，它就会漏掉这个修复（而且很难发现）。
+    """
+
+    GUIDE_TASKS = ('mission_task', 'pointrace_task', 'ranklist_task',
+                   'teamfight_task', 'coinorgin_task')
+
+    def test_all_guide_tasks_use_the_shared_entry(self):
+        import importlib
+        for name in self.GUIDE_TASKS:
+            mod = importlib.import_module(f'src.tasks.{name}')
+            path = f'src/tasks/{name}.py'
+            with open(path, encoding='utf-8') as f:
+                src = f.read()
+            self.assertIn('enter_by_mode(', src,
+                          f'{name} 没走共享的 enter_by_mode')
+            # 不许自己写滑动手势（那样会绕过换线修复）
+            self.assertNotIn('scroll_guide(', src,
+                             f'{name} 自己调了 scroll_guide —— 会绕过 _sweep_entry'
+                             f' 里的换线修复')
+            self.assertNotIn('gesture(', src,
+                             f'{name} 自己写了手势 —— 应该交给 _sweep_entry')
+
+    def test_switch_lives_in_the_shared_sweep(self):
+        with open('src/tasks/guide_nav.py', encoding='utf-8') as f:
+            g = f.read()
+        sweep = g.split('def _sweep_entry')[1].split('def click_below')[0]
+        self.assertIn('换成另一条起止线', sweep, '换线修复不在共享路径里')
+        self.assertIn('inner_mode = new_inner', sweep, '换线后没有固定用新线')
+
+    def test_reward_entry_task_not_affected(self):
+        """组织祈福走的是「奖励 -> 每日任务」，不经过指南滑动。"""
+        with open('src/tasks/team_praytask.py', encoding='utf-8') as f:
+            src = f.read()
+        self.assertNotIn('enter_by_mode', src,
+                         '组织祈福不该走指南入口（它走 main_reward）')
+
+
 if __name__ == '__main__':
     unittest.main()

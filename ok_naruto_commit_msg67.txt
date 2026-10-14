@@ -1,0 +1,17 @@
+确认: 换线修复覆盖所有走指南的任务（加门禁守住）
+
+用户要求"把滑不动就换起止线实装到全部包含在 guide 滑动的任务"。
+实际情况: **这 5 个任务本来就共用同一条路径** —— 滑动逻辑都在
+GuideNavTask._sweep_entry 里，各任务只提供 OCR 文字/模板：
+    任务集会所 / 积分赛 / 排行榜 / 小队突袭 / 丰饶之间
+    (组织祈福走 main_reward，不经过指南滑动)
+所以上一提交(547fec3)把换线逻辑放进 _sweep_entry 时，
+**已经一次性覆盖了全部 5 个任务**。
+
+这次补上门禁 TestGuideTasksShareOneSweep(3 个用例) 守住这个前提:
+  * 这 5 个任务必须走共享的 enter_by_mode
+  * **不许自己调 scroll_guide / gesture** —— 那会绕过换线修复
+  * 换线逻辑必须确实在 _sweep_entry 里（且换线后固定用新线）
+  * 组织祈福不该走指南入口（它是 main_reward 那条路）
+
+门禁 TestMain 10 + TestRelease 124 全绿。
