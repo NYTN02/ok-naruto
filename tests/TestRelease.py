@@ -1753,5 +1753,78 @@ class TestGuideEntryRegion(unittest.TestCase):
         self.assertLess(body.index('self.ocr('), body.index('_safe_find_one('))
 
 
+class TestEntryModeWiring(unittest.TestCase):
+    """「进入方式」选项的接线检查。
+
+    踩过的坑：DailyTask 继承 PageNavTask（不是 GuideNavTask），
+    而我一开始在 daily_task 里写了 self.entry_mode() —— 那是 GuideNavTask 的方法，
+    一键日常一跑就 AttributeError，整条日常链被中断。
+    """
+
+    def test_daily_task_only_uses_what_it_has(self):
+        """★ 回归：DailyTask 不能调用 GuideNavTask 才有的方法。"""
+        from src.tasks.daily_task import DailyTask
+        from src.tasks.guide_nav import ENTRY_MODE_GUIDE, ENTRY_MODE_KEY
+        import inspect
+
+        self.assertTrue(hasattr(DailyTask, 'supports_entry_mode'),
+                        'DailyTask 要有 supports_entry_mode（判断透传给谁）')
+        src = inspect.getsource(DailyTask)
+        # 这些方法只在 GuideNavTask 上，DailyTask 用不了
+        for forbidden in ('self.entry_mode()', 'self.enter_by_mode('):
+            self.assertNotIn(forbidden, src,
+                             f'DailyTask 不能调 {forbidden}（那是 GuideNavTask 的方法）')
+        # 它应该直接读配置
+        self.assertIn('ENTRY_MODE_KEY', src)
+        self.assertIn('ENTRY_MODE_GUIDE', src)
+
+    def test_supports_entry_mode_reflects_registration(self):
+        """supports_entry_mode 要按"是否真的登记了选项"判断。
+
+        组织祈福也继承 GuideNavTask，但它走自己那套 main_reward 流程、
+        没登记这个选项 —— 不能因为继承关系就返回 True。
+        """
+        import importlib
+        expected = {
+            ('mission_task', 'MissionTask'): True,
+            ('pointrace_task', 'PointRaceTask'): True,
+            ('teamfight_task', 'TeamFightTask'): True,
+            ('coinorgin_task', 'CoinOrginTask'): True,
+            ('ranklist_task', 'RankListTask'): True,      # 登记了，但只有「忍界指引」
+            ('team_praytask', 'TeamPrayTask'): False,     # 没登记
+            ('daily_task', 'DailyTask'): False,           # 总开关自己不需要
+        }
+        for (mod_name, cls_name), want in expected.items():
+            mod = importlib.import_module(f'src.tasks.{mod_name}')
+            getattr(mod, cls_name)          # 类必须存在
+            with open(f'src/tasks/{mod_name}.py', encoding='utf-8') as f:
+                registered = 'add_entry_mode_config' in f.read()
+            # 静态判断"是否登记"应与期望一致
+            self.assertEqual(want, registered,
+                             f'{cls_name} 的登记状态与期望不符（期望 {want}）')
+
+    def test_ranklist_has_no_reward_option(self):
+        """排行榜在每日任务里没有 -> 选项里不能出现「奖励」。"""
+        with open('src/tasks/ranklist_task.py', encoding='utf-8') as f:
+            src = f.read()
+        self.assertIn('add_entry_mode_config()', src,
+                      '排行榜应该登记"只走指南"（不传 reward_item_text）')
+        self.assertNotIn('add_entry_mode_config(REWARD_ITEM_TEXT)', src)
+
+    def test_reward_texts_are_the_agreed_ones(self):
+        """各任务在每日任务里识别的文字，按需求定死。"""
+        expect = {
+            'mission_task': '集会所',
+            'pointrace_task': '积分赛',
+            'teamfight_task': '小队突袭',
+            'coinorgin_task': '丰饶',
+        }
+        for mod_name, text in expect.items():
+            with open(f'src/tasks/{mod_name}.py', encoding='utf-8') as f:
+                src = f.read()
+            self.assertIn(f"REWARD_ITEM_TEXT = '{text}'", src,
+                          f'{mod_name} 的奖励识别文字应为「{text}」')
+
+
 if __name__ == '__main__':
     unittest.main()

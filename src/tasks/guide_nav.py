@@ -439,8 +439,13 @@ class GuideNavTask(PageNavTask):
             '这个任务在每日任务里没有，只能走「指南」')
 
     def supports_entry_mode(self):
-        """走「指南」的任务支持选择进入方式（见 ENTRY_MODE_*）。"""
-        return True
+        """这个任务是否**真的**登记了「进入方式」选项。
+
+        不能直接 return True —— 组织祈福也继承本类，但它走的是自己那套
+        main_reward 流程，并没有登记这个选项。按 config_type 里有没有来判断最准，
+        也免得一键日常往一个不认这个键的任务里塞配置。
+        """
+        return ENTRY_MODE_KEY in getattr(self, 'config_type', {})
 
     def entry_mode(self):
         return self.config.get(ENTRY_MODE_KEY, ENTRY_MODE_GUIDE)

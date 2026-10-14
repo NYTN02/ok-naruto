@@ -219,7 +219,8 @@ class DailyTask(PageNavTask):
         # 把「进入方式」透传给支持它的子任务。一键日常是总开关，
         # 所以这里直接覆盖子任务自己的选择 —— 用户只该在这一个地方配。
         if task.supports_entry_mode():
-            task.config[ENTRY_MODE_KEY] = self.entry_mode()
+            task.config[ENTRY_MODE_KEY] = self.config.get(ENTRY_MODE_KEY,
+                                                       ENTRY_MODE_GUIDE)
         try:
             task.run()
             return True
