@@ -1099,6 +1099,12 @@ class TestWaitClickSafety(unittest.TestCase):
         self.assertIn('click_coinpray()', run_body)
 
 
+def pathlib_read(path):
+    """读文件文本（测试文件不用 pathlib，这里给个薄包装）。"""
+    with open(path, encoding='utf-8') as f:
+        return f.read()
+
+
 def _code_only(src):
     """去掉**注释和文档字符串**后的代码文本。
 
@@ -1931,6 +1937,42 @@ class TestRewardScrollSettle(unittest.TestCase):
         self.assertIn('REWARD_SCROLL_AFTER', enter, '点「立刻前往」前没有等待')
         self.assertLess(enter.index('REWARD_SCROLL_AFTER'), enter.index('click_below'),
                         '等待必须在 click_below 之前')
+
+
+class TestRewardModeDisabled(unittest.TestCase):
+    """「奖励」（每日任务）进入方式已停用 —— 界面上不能还留着这个选项。
+
+    踩过的坑：四个任务走 add_entry_mode_config()（那里停用了），
+    但**一键日常的选项是直接写在 config_type 里的**，漏了 ——
+    用户看到的界面下拉框里还是有「奖励」。所以这里做全项目扫描：
+    只要 REWARD_MODE_ENABLED 是 False，任何地方都不许把它列进 options。
+    """
+
+    def test_no_place_lists_reward_as_an_option_when_disabled(self):
+        from src.tasks.guide_nav import REWARD_MODE_ENABLED
+        if REWARD_MODE_ENABLED:
+            self.skipTest('奖励方式当前是启用的，不用检查')
+        offenders = []
+        for path in sorted(glob.glob(os.path.join('src', '**', '*.py'), recursive=True)):
+            src = _code_only(pathlib_read(path))
+            for i, line in enumerate(src.splitlines(), 1):
+                # 只查真正把它当选项列出来的写法
+                # 只查字典里写死的选项列表（options 带引号的那种写法）；
+                # options.append(...) 是**合法**的条件追加，不能误报
+                if ("'options'" in line or '"options"' in line) and 'ENTRY_MODE_REWARD' in line:
+                    offenders.append(f'{path}:{i}: {line.strip()}')
+        self.assertEqual([], offenders,
+                         '奖励方式已停用，但这些地方还把它列在选项里：\n  '
+                         + '\n  '.join(offenders))
+
+    def test_reward_mode_switch_is_the_single_source(self):
+        """选项必须由开关控制，不能各写各的。"""
+        from src.tasks.guide_nav import REWARD_MODE_ENABLED
+        self.assertFalse(REWARD_MODE_ENABLED, '现在应该是停用状态')
+        with open('src/tasks/daily_task.py', encoding='utf-8') as f:
+            dsrc = f.read()
+        self.assertIn('_entry_mode_options', dsrc, '一键日常没有走统一的选项函数')
+        self.assertIn('REWARD_MODE_ENABLED', dsrc, '一键日常没有受开关控制')
 
 
 if __name__ == '__main__':

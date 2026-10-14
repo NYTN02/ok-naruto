@@ -24,7 +24,12 @@ from src.tasks.gacha_task import GachaTask
 from src.tasks.jingying_task import JingYingTask
 from src.tasks.mission_task import MissionTask
 from src.tasks.noodle_task import NoodleTask
-from src.tasks.guide_nav import ENTRY_MODE_GUIDE, ENTRY_MODE_KEY, ENTRY_MODE_REWARD
+from src.tasks.guide_nav import (
+    ENTRY_MODE_GUIDE,
+    ENTRY_MODE_KEY,
+    ENTRY_MODE_REWARD,
+    REWARD_MODE_ENABLED,
+)
 from src.tasks.page_nav import PageNavTask
 from src.tasks.pointrace_task import PointRaceTask
 from src.tasks.qiandao_task import QianDaoTask
@@ -74,6 +79,19 @@ FIRST_RUN_ALERT = (
 )
 
 
+def _entry_mode_options():
+    """「进入方式」的可选项。
+
+    「奖励」方式由 guide_nav.REWARD_MODE_ENABLED 统一开关 —— 这样停用/恢复
+    只需要改那一处，不会出现某个地方还留着奖励选项的情况。
+    （这里曾经直接把选项写死，结果停用后界面下拉框里还有「奖励」。）
+    """
+    options = [ENTRY_MODE_GUIDE]
+    if REWARD_MODE_ENABLED:
+        options.append(ENTRY_MODE_REWARD)
+    return options
+
+
 class DailyTask(PageNavTask):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -93,15 +111,15 @@ class DailyTask(PageNavTask):
         self.config_description.update({
             "执行任务": "勾选本次要跑的任务。执行顺序固定（按日常习惯排序），与勾选顺序无关。",
             "任务间回到主页面": "每个任务开始前先确认已经在主页面，保证起始状态一致（推荐开启）。",
-            ENTRY_MODE_KEY: (f"统一指定子任务走哪条路进入：{ENTRY_MODE_GUIDE} 走游戏里的"
-                             f"「指南」列表（条目多，要上下滑找）；{ENTRY_MODE_REWARD} 走"
-                             f"「奖励 → 每日任务」（卡片少，找得快）。"
-                             f"只对支持的任务生效 —— 排行榜在每日任务里没有，仍然走指南。"),
+            ENTRY_MODE_KEY: (f"统一指定子任务走哪条路进入。当前只有 "
+                             f"{ENTRY_MODE_GUIDE}（走游戏里的「指南」列表）。"),
         })
         self.config_type.update({
             "执行任务": {"type": "multi_selection", "options": list(TASK_LABELS)},
+            # 「奖励」方式由 guide_nav.REWARD_MODE_ENABLED 统一控制 ——
+            # 不要在别处写死选项（这里曾经写死过，导致停用后下拉框还留着）
             ENTRY_MODE_KEY: {'type': 'drop_down',
-                             'options': [ENTRY_MODE_GUIDE, ENTRY_MODE_REWARD]},
+                             'options': _entry_mode_options()},
         })
 
     # ------------------------------------------------------------------
