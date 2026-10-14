@@ -201,11 +201,19 @@ ENTRY_MODE_REWARD = '奖励'
 # 走「奖励」（每日任务）时需要的东西
 REWARD_ENTRY = 'main_reward'          # 主页面上的每日任务/奖励入口
 GO_TEXT = '立刻前往'                   # 条目正下方的按钮文字
-REWARD_SCROLL_X, REWARD_SCROLL_Y = 0.5, 0.5
-REWARD_SCROLL_DISTANCE = 0.35         # 每次左右拖动的距离（相对屏幕宽度）
+# 左右滑动用**固定的两条线**（用户实测指定），不再用"屏幕中央 + 距离"算：
+#     往左找（想看列表更左边的内容）：按住 (0.355, 0.378) 滑到 (0.808, 0.368)
+#     往右找（想看列表更右边的内容）：按住 (0.808, 0.368) 滑到 (0.355, 0.378)
+# 手指方向和内容方向是反的：往左找时手指往**右**拖。
+REWARD_SCROLL_LEFT_FROM = (0.355, 0.378)
+REWARD_SCROLL_LEFT_TO = (0.808, 0.368)
+REWARD_SCROLL_RIGHT_FROM = (0.808, 0.368)
+REWARD_SCROLL_RIGHT_TO = (0.355, 0.378)
+
 REWARD_SCROLL_MAX = 8                 # 单向最多滑几次
 REWARD_ENTRY_TIMEOUT = 5.0
 REWARD_OPEN_WAIT = 1.8
+REWARD_DAILY_TASK_ATTEMPTS = 3        # 点「每日任务」的重试次数
 
 
 class GuideNavTask(PageNavTask):
@@ -481,8 +489,19 @@ class GuideNavTask(PageNavTask):
             return False
         self.sleep(REWARD_OPEN_WAIT)
 
-        if not self.click_text(DAILY_TASK_PATTERN, time_out=REWARD_ENTRY_TIMEOUT):
-            self.log_error("没找到「每日任务」，无法走「奖励」进入")
+        # 必须真正点进「每日任务」子页面才能左右滑 —— 用户反馈过"左右滑都没反应"，
+        # 原因多半就是这一步没成，滑在了奖励主页上。所以这里给几次重试。
+        entered = False
+        for attempt in range(1, REWARD_DAILY_TASK_ATTEMPTS + 1):
+            if self.click_text(DAILY_TASK_PATTERN, time_out=REWARD_ENTRY_TIMEOUT):
+                entered = True
+                break
+            self.log_warning(f"第 {attempt}/{REWARD_DAILY_TASK_ATTEMPTS} 次没找到"
+                             f"「每日任务」，重试")
+            self.sleep(1.0)
+        if not entered:
+            self.log_error(f"点了 {REWARD_DAILY_TASK_ATTEMPTS} 次都没找到「每日任务」，"
+                           f"无法走「奖励」进入（左右滑动必须在每日任务页面里做）")
             return False
         self.sleep(REWARD_OPEN_WAIT)
 
@@ -511,24 +530,25 @@ class GuideNavTask(PageNavTask):
             self.log_info(f"[每日任务] 当前画面已看到「{item_text}」")
             return box
 
+        # 先往右找（列表一般从左端开始，目标多半在右边），再折返往左找
         for i in range(1, max_swipes + 1):
             if self.should_stop('每日任务滑动'):
                 return None
-            self.log_info(f"[每日任务] 向左滑 {i}/{max_swipes} 次找「{item_text}」")
-            self.scroll_reward(direction=1)
+            self.log_info(f"[每日任务] 往右找 {i}/{max_swipes}：「{item_text}」")
+            self.scroll_reward(to_left=False)
             box = self.find_reward_item_on_screen(pattern)
             if box is not None:
-                self.log_info(f"[每日任务] 向左滑 {i} 次后找到「{item_text}」")
+                self.log_info(f"[每日任务] 往右找 {i} 次后找到「{item_text}」")
                 return box
 
         for i in range(1, max_swipes * 2 + 1):
             if self.should_stop('每日任务滑动'):
                 return None
-            self.log_info(f"[每日任务] 向右滑 {i}/{max_swipes * 2} 次找「{item_text}」")
-            self.scroll_reward(direction=-1)
+            self.log_info(f"[每日任务] 往左找 {i}/{max_swipes * 2}：「{item_text}」")
+            self.scroll_reward(to_left=True)
             box = self.find_reward_item_on_screen(pattern)
             if box is not None:
-                self.log_info(f"[每日任务] 向右滑 {i} 次后找到「{item_text}」")
+                self.log_info(f"[每日任务] 往左找 {i} 次后找到「{item_text}」")
                 return box
         return None
 
@@ -549,15 +569,21 @@ class GuideNavTask(PageNavTask):
                     return box
         return None
 
-    def scroll_reward(self, direction=1):
-        """每日任务列表左右滑一次。
+    def scroll_reward(self, to_left=True):
+        """在「奖励 → 每日任务」页面上左右滑一次（固定起止线）。
 
-        ``direction=1`` 往左拖（看右边的内容），``-1`` 往右拖（看回左边）。
+        ``to_left=True``  想看**更左边**的内容：按住 (0.355,0.378) 滑到 (0.808,0.368)
+        ``to_left=False`` 想看**更右边**的内容：按住 (0.808,0.368) 滑到 (0.355,0.378)
+
+        手指方向和内容方向是反的，所以参数按"想看哪边的内容"命名 ——
+        和指南那边（to_bottom）保持同一套习惯，免得又搞反。
         """
-        x_from = int(self.width * REWARD_SCROLL_X)
-        y = int(self.height * REWARD_SCROLL_Y)
-        delta = int(self.width * REWARD_SCROLL_DISTANCE) * (1 if direction > 0 else -1)
-        self.gesture(x_from, y, x_from - delta, y,
+        if to_left:
+            (fx, fy), (tx, ty) = REWARD_SCROLL_LEFT_FROM, REWARD_SCROLL_LEFT_TO
+        else:
+            (fx, fy), (tx, ty) = REWARD_SCROLL_RIGHT_FROM, REWARD_SCROLL_RIGHT_TO
+        self.gesture(int(self.width * fx), int(self.height * fy),
+                     int(self.width * tx), int(self.height * ty),
                      duration=self.default_swipe_duration())
 
     def exit_reward(self):

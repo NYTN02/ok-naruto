@@ -1826,5 +1826,61 @@ class TestEntryModeWiring(unittest.TestCase):
                           f'{mod_name} 的奖励识别文字应为「{text}」')
 
 
+class TestRewardScrollLines(unittest.TestCase):
+    """「奖励 → 每日任务」页面的左右滑动用**固定两条线**（用户实测指定）。
+
+    之前的实现是"屏幕中央 + 距离 0.35 算出来的"，用户实测那个位置根本滑不动
+    （左右都没反应）。而且左右滑动**必须在点进「每日任务」子页面之后**做 ——
+    之前"没反应"很可能就是没真正进到那一层，滑在了奖励主页上。
+    """
+
+    def test_fixed_lines_match_the_spec(self):
+        from src.tasks.guide_nav import (
+            REWARD_SCROLL_LEFT_FROM,
+            REWARD_SCROLL_LEFT_TO,
+            REWARD_SCROLL_RIGHT_FROM,
+            REWARD_SCROLL_RIGHT_TO,
+        )
+        # 用户给的：往左找 (0.355,0.378) -> (0.808,0.368)
+        self.assertEqual((0.355, 0.378), REWARD_SCROLL_LEFT_FROM)
+        self.assertEqual((0.808, 0.368), REWARD_SCROLL_LEFT_TO)
+        # 往右找是反向
+        self.assertEqual((0.808, 0.368), REWARD_SCROLL_RIGHT_FROM)
+        self.assertEqual((0.355, 0.378), REWARD_SCROLL_RIGHT_TO)
+        # 两条线必须互为反向（否则两个方向会滑到同一处）
+        self.assertEqual(REWARD_SCROLL_LEFT_TO, REWARD_SCROLL_RIGHT_FROM)
+        self.assertEqual(REWARD_SCROLL_LEFT_FROM, REWARD_SCROLL_RIGHT_TO)
+        # 手指方向和内容方向相反：往左找 => 手指往右
+        self.assertGreater(REWARD_SCROLL_LEFT_TO[0], REWARD_SCROLL_LEFT_FROM[0],
+                           '往左找时手指应该往**右**拖（内容往右，露出左边的内容）')
+
+    def test_scroll_reward_uses_fixed_lines(self):
+        with open('src/tasks/guide_nav.py', encoding='utf-8') as f:
+            src = f.read()
+        body = src.split('def scroll_reward')[1].split('def exit_reward')[0]
+        for name in ('REWARD_SCROLL_LEFT_FROM', 'REWARD_SCROLL_LEFT_TO',
+                     'REWARD_SCROLL_RIGHT_FROM', 'REWARD_SCROLL_RIGHT_TO'):
+            self.assertIn(name, body, f'scroll_reward 没用 {name}')
+        # 不该再用"中央 + 距离"那种算法
+        self.assertNotIn('REWARD_SCROLL_DISTANCE', src,
+                         '旧的"中央+距离"常量应该已经删掉')
+        self.assertIn('to_left', body, '参数应按"想看哪边的内容"命名')
+
+    def test_daily_task_click_retries_before_scrolling(self):
+        """必须先 OCR 点「每日任务」并成功，才允许开始左右滑。"""
+        from src.tasks.guide_nav import REWARD_DAILY_TASK_ATTEMPTS
+        self.assertGreaterEqual(REWARD_DAILY_TASK_ATTEMPTS, 2, '点「每日任务」要有重试')
+        with open('src/tasks/guide_nav.py', encoding='utf-8') as f:
+            src = f.read()
+        enter = src.split('def enter_reward')[1].split('def find_reward_item')[0]
+        # 顺序：点「每日任务」在滑动之前
+        self.assertIn('DAILY_TASK_PATTERN', enter, '没有 OCR 点「每日任务」')
+        self.assertLess(enter.index('DAILY_TASK_PATTERN'), enter.index('find_reward_item'),
+                        '必须先进「每日任务」再滑动找条目')
+        self.assertIn('REWARD_DAILY_TASK_ATTEMPTS', enter, '没有重试')
+        # 点不进去就不能滑
+        self.assertIn('return False', enter)
+
+
 if __name__ == '__main__':
     unittest.main()
