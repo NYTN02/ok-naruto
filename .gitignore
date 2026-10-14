@@ -72,3 +72,7 @@ working_images/
 
 .tmp/
 .adbtmp/
+
+# 提交消息草稿（脚本生成的临时文件，绝不能进仓库）
+ok_naruto_commit_msg*.txt
+_commit_msg*.txt
