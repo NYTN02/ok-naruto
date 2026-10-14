@@ -788,7 +788,8 @@ class TestGuideEntry(unittest.TestCase):
         with open('src/tasks/guide_nav.py', encoding='utf-8') as f:
             gsrc = f.read()
         on_screen = gsrc.split('def find_entry_on_screen')[1].split('def _sweep_entry')[0]
-        self.assertLess(on_screen.index('self.ocr('), on_screen.index('_safe_find_one('),
+        self.assertLess(on_screen.index('_find_entry_by_ocr('),
+                        on_screen.index('_safe_find_one('),
                         'find_entry_on_screen 应该先 OCR，再退回模板')
         self.assertIn('GO_TEXT_PATTERN', gsrc, '「前往」没有 OCR 兜底')
 
@@ -1764,13 +1765,17 @@ class TestGuideEntryRegion(unittest.TestCase):
     def test_find_entry_filters_by_region(self):
         with open('src/tasks/guide_nav.py', encoding='utf-8') as f:
             src = f.read()
-        body = src.split('def find_entry_on_screen')[1].split('def _sweep_entry')[0]
+        # 区域过滤在 _find_entry_by_ocr 里（find_entry_on_screen 调它）
+        body = src.split('def _find_entry_by_ocr')[1].split('def find_entry_on_screen')[0]
         self.assertIn('GUIDE_LIST_HIT_X_MAX', body, '没有按 x 区域过滤')
         self.assertIn('GUIDE_LIST_HIT_Y_MIN', body, '没有按 y 区域过滤')
         # 认到但不在区域里时要明确说出来，否则用户只看到"找不到"，无从判断
         self.assertIn('都不在', body, '没有把"认到但位置不对"明确报出来')
-        # 仍然是"先 OCR 再模板兜底"
-        self.assertLess(body.index('self.ocr('), body.index('_safe_find_one('))
+        # 整体顺序仍然是"先 OCR 再模板兜底"
+        whole = src.split('def find_entry_on_screen')[1].split('def _sweep_entry')[0]
+        self.assertLess(whole.index('_find_entry_by_ocr('),
+                        whole.index('_safe_find_one('),
+                        '应该先 OCR 再退回模板')
 
 
 class TestEntryModeWiring(unittest.TestCase):
@@ -2011,6 +2016,51 @@ class TestGuideOpenVerification(unittest.TestCase):
         self.assertIn('open_guide()', enter, 'enter_guide 没走 open_guide')
         self.assertNotIn('click_feature(GUIDE_ENTRY', enter,
                          'enter_guide 还在裸点 GUIDE_ENTRY，绕过了"真进去了吗"的确认')
+
+
+class TestGuideOcrPrefixFallback(unittest.TestCase):
+    """条目识别要有"前缀容错"。
+
+    用户日志实证（2026-10-14 13:55）：OCR 把「小队突袭」认成了「小队突装」
+    （袭/装 形近，置信度 0.85），精确匹配的正则判为"没找到" ——
+    于是一路滑到列表顶部才放弃，日志只写"滑遍都没找到"，极难定位。
+    同样的还有「任务集会所」被截断成「任务集」。
+    """
+
+    def test_prefix_len_is_reasonable(self):
+        from src.tasks.guide_nav import GUIDE_ENTRY_PREFIX_LEN
+        self.assertGreaterEqual(GUIDE_ENTRY_PREFIX_LEN, 2, '太短会误匹配')
+        self.assertLessEqual(GUIDE_ENTRY_PREFIX_LEN, 4, '太长起不到容错作用')
+
+    def test_real_log_strings_are_matched(self):
+        """★ 回归：拿日志里真实出现过的 OCR 字符串验证。"""
+        import re
+        from src.tasks.guide_nav import GuideNavTask
+
+        class _T(GuideNavTask):
+            def __init__(self):
+                pass
+
+        t = _T()
+        cases = [
+            ('小队突袭', '小队突装'),    # ★ 日志里就是这么认错的
+            ('任务集会所', '任务集'),      # ★ 日志里被截断
+            ('丰饶之间', '丰饶之问'),
+            ('小队突袭', '小队突袭'),      # 正常情况当然也要命中
+            ('积分赛', '积分赛'),
+        ]
+        for item, ocr_text in cases:
+            pats = t._entry_patterns(re.compile(item))
+            hit = [pp.pattern for pp in pats if re.search(pp, ocr_text)]
+            self.assertTrue(hit, f'OCR「{ocr_text}」应该能匹配到条目「{item}」')
+
+    def test_fallback_is_logged(self):
+        """用容错匹配时必须说出来（否则又是"日志看不出发生了什么"）。"""
+        with open('src/tasks/guide_nav.py', encoding='utf-8') as f:
+            src = f.read()
+        body = src.split('def find_entry_on_screen')[1].split('def _sweep_entry')[0]
+        self.assertIn('容错匹配', body, '容错命中时没有明确日志')
+        self.assertIn('log_warning', body)
 
 
 if __name__ == '__main__':

@@ -119,6 +119,17 @@ GUIDE_SCROLL_INNER_TO_Y = 0.400
 #    右侧显示什么内容不由我们控制（跟游戏活动 / 玩家进度有关），
 #    所以会出现"第一天能用、后来突然不行"—— 不是程序变了，是界面内容变了。
 # ---------------------------------------------------------------------------
+# OCR 容错：条目名的**前 N 个字**相同就认。
+#
+# ⚠️ 为什么需要：OCR 会把形近字认错、也会把长名字截断。实测出现过
+#      「小队突袭」-> 「小队突装」(袭/装 形近, 置信度 0.85)
+#      「任务集会所」-> 「任务集」  (被截断)
+#   这时精确匹配的正则会判"没找到"，然后一路滑到底、白白浪费十几秒，
+#   日志里却只写"滑遍都没找到"，极难定位。
+#
+# 3 个字足够区分指南列表里的条目（小队突袭 / 任务集会所 / 丰饶之间 / 积分赛…）。
+GUIDE_ENTRY_PREFIX_LEN = 3
+
 GUIDE_LIST_HIT_X_MAX = 0.35          # 条目中心 x 超过这个值就认为不是列表条目
 GUIDE_LIST_HIT_Y_MIN = 0.10
 GUIDE_LIST_HIT_Y_MAX = 0.92
@@ -751,41 +762,66 @@ class GuideNavTask(PageNavTask):
         # 再折返朝顶部方向找
         return self._sweep_entry(item_pattern, templates, to_bottom=False, max_swipes=max_swipes)
 
-    def find_entry_on_screen(self, item_pattern, templates):
-        """在当前画面里找条目：先 OCR 文字，再退回模板。
+    def _entry_patterns(self, item_pattern):
+        """返回要尝试的匹配模式：先精确，再前缀容错。
 
-        **只在左侧列表区域里认**（见 GUIDE_LIST_HIT_*）：OCR 是全屏的，
-        右侧详情/预览面板里的同名文字会被误认成条目，点过去没反应 ——
-        用户日志里就是这么失败的。
+        前缀容错是为了对付 OCR 把形近字认错（小队突袭 -> 小队突装）
+        和把长名字截断（任务集会所 -> 任务集）。见 GUIDE_ENTRY_PREFIX_LEN。
         """
+        patterns = [item_pattern]
+        plain = re.sub(r'[^\w\u4e00-\u9fff]', '', item_pattern.pattern)
+        if len(plain) >= GUIDE_ENTRY_PREFIX_LEN:
+            prefix = plain[:GUIDE_ENTRY_PREFIX_LEN]
+            if prefix != item_pattern.pattern:
+                patterns.append(re.compile(re.escape(prefix)))
+        return patterns
+
+    def _find_entry_by_ocr(self, pattern):
+        """按一个模式在左侧列表区域里找条目，返回 Box 或 None。"""
         try:
-            boxes = self.ocr(match=[item_pattern])
+            boxes = self.ocr(match=[pattern])
         except Exception as e:
             self.log_debug(f"OCR 找条目出错: {e}")
-            boxes = None
-        if boxes:
-            if not isinstance(boxes, list):
-                boxes = [boxes]
-            width = getattr(self, 'width', 0) or 1
-            height = getattr(self, 'height', 0) or 1
-            rejected = []
-            for box in boxes:
-                if not all(hasattr(box, a) for a in ('x', 'y', 'width', 'height')):
-                    continue
-                cx = (box.x + box.width / 2) / width
-                cy = (box.y + box.height / 2) / height
-                if (cx <= GUIDE_LIST_HIT_X_MAX
-                        and GUIDE_LIST_HIT_Y_MIN <= cy <= GUIDE_LIST_HIT_Y_MAX):
-                    self.log_info(f"[指南] OCR 认到「{item_pattern.pattern}」"
-                                  f"({box.x}, {box.y}) 在列表区域内")
-                    return box
-                rejected.append((box.x, box.y, round(cx, 3)))
-            if rejected:
-                # 认到了但都不在列表里 —— 明确说出来，否则用户只看到"找不到"，
-                # 完全无法判断是"文字没认出来"还是"认到了但位置不对"
-                self.log_warning(f"[指南] OCR 认到「{item_pattern.pattern}」但都不在"
-                                 f"左侧列表区域内（x 上限 {GUIDE_LIST_HIT_X_MAX}）："
-                                 f"{rejected}，忽略")
+            return None
+        if not boxes:
+            return None
+        if not isinstance(boxes, list):
+            boxes = [boxes]
+        width = getattr(self, 'width', 0) or 1
+        height = getattr(self, 'height', 0) or 1
+        rejected = []
+        for box in boxes:
+            if not all(hasattr(box, a) for a in ('x', 'y', 'width', 'height')):
+                continue
+            cx = (box.x + box.width / 2) / width
+            cy = (box.y + box.height / 2) / height
+            if (cx <= GUIDE_LIST_HIT_X_MAX
+                    and GUIDE_LIST_HIT_Y_MIN <= cy <= GUIDE_LIST_HIT_Y_MAX):
+                return box
+            rejected.append((box.x, box.y, round(cx, 3)))
+        if rejected:
+            self.log_warning(f"[指南] OCR 认到「{pattern.pattern}」但都不在"
+                             f"左侧列表区域内（x 上限 {GUIDE_LIST_HIT_X_MAX}）："
+                             f"{rejected}，忽略")
+        return None
+
+    def find_entry_on_screen(self, item_pattern, templates):
+        """在当前画面里找条目：先 OCR 文字（含前缀容错），再退回模板。
+
+        OCR 是全屏的，所以只在左侧列表区域里认（见 GUIDE_LIST_HIT_*）；
+        精确匹配失败时用前缀再试一次（对付形近字认错和名字截断）。
+        """
+        patterns = self._entry_patterns(item_pattern)
+        for i, pattern in enumerate(patterns):
+            box = self._find_entry_by_ocr(pattern)
+            if box is not None:
+                if i > 0:
+                    self.log_warning(f"[指南] 精确匹配没找到「{item_pattern.pattern}」，"
+                                     f"用前缀「{pattern.pattern}」容错匹配到了"
+                                     f"（多半是 OCR 认错字或截断了）")
+                self.log_info(f"[指南] OCR 认到「{pattern.pattern}」"
+                              f"({box.x}, {box.y}) 在列表区域内")
+                return box
         for name in templates:
             box = self._safe_find_one(name)
             if box is not None:
