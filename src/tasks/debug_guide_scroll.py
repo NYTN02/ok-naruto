@@ -182,7 +182,6 @@ class DebugGuideScrollTask(GuideNavTask):
                       f"（False = 纯 adb，settle_time 会被丢掉）")
 
         diffs = []
-        reentry_used = 0
         for i in range(1, times + 1):
             if self.should_stop('指南滑动测试'):
                 break
@@ -211,31 +210,29 @@ class DebugGuideScrollTask(GuideNavTask):
                           f"  到顶={at_top} 到底={at_bottom}")
             if diff == 0 and sig_before == sig_after:
                 self.log_warning(f"[{direction}] 差异恰好 0 且指纹完全相同 —— "
-                                 f"界面此刻不接受滑动（用户实测手动也复现）")
-                if reentry_used >= REENTRY_MAX:
-                    self.log_warning(f"[{direction}] 已经重进过 {REENTRY_MAX} 次，"
-                                     f"不再重试 —— 这个方向确实滑不动")
-                    continue
-                reentry_used += 1
-                self.log_warning(f"[{direction}] 退出指南再重进，"
-                                 f"第 {reentry_used}/{REENTRY_MAX} 次")
-                if not self.reenter_guide():
-                    self.log_warning(f"[{direction}] 重进指南失败，跳过这一次补救")
-                    continue
-                # 重进后再滑一次，看恢复没有
+                                 f"这个手势此刻无效（用户实测手动也复现）")
+                # ★ 换另一条起止线再滑一次（用户提出要测的方法）
+                #   依据: 不同机器"能用的线"不一样 —— 换一条往往就能滑。
+                #   推测机制: 列表滚动后同一个 y 会落在不同元素上，
+                #   有时落在不接受拖拽的地方 -> 拖动被吞；换条线就落在能拖的地方。
+                other_inner = not inner
+                other_name = LINE_INNER if other_inner else LINE_USER
+                self.log_warning(f"[{direction}] 换成另一条起止线「{other_name}」再滑一次")
                 before2 = self.list_thumb()
                 sig_b2 = self.thumb_sig(before2)
-                self.scroll_guide(to_bottom=to_bottom, inner=inner)
+                self.scroll_guide(to_bottom=to_bottom, inner=other_inner)
                 after2 = self.list_thumb()
                 sig_a2 = self.thumb_sig(after2)
                 diff2 = self.diff_value(before2, after2)
                 if diff2 > 0:
-                    self.log_info(f"[{direction}] ✓ 重进之后恢复了！差异 {diff2:.3f}，"
+                    self.log_info(f"[{direction}] ✓ 换线之后恢复了！"
+                                  f"差异 {diff2:.3f}（{line_name} -> {other_name}），"
                                   f"指纹 {sig_b2} -> {sig_a2}")
                     diffs.append(diff2)
                 else:
-                    self.log_warning(f"[{direction}] ✗ 重进之后**仍然滑不动**，"
-                                     f"指纹 {sig_b2} -> {sig_a2}")
+                    self.log_warning(f"[{direction}] ✗ 换线（{other_name}）也滑不动，"
+                                     f"指纹 {sig_b2} -> {sig_a2} —— "
+                                     f"两条线都失效，这次是真的卡住了")
 
         if not diffs:
             self.log_warning(f"[{direction}] 一次都没滑成（可能已在列表端点）")
