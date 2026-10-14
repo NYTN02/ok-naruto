@@ -175,6 +175,10 @@ GUIDE_STUCK_TOLERANCE = 2         # 连续几次滑不动就放弃这个方向
 
 # 各等待时长（秒）
 GUIDE_ENTRY_TIMEOUT = 5.0       # 等 main_guide 出现
+# 点完 main_guide 之后等多久，再确认"是不是真的进指南了"
+GUIDE_ENTRY_VERIFY_WAIT = 1.0
+# 点不开就重试几次（见 open_guide 的说明）
+GUIDE_ENTRY_ATTEMPTS = 3
 GUIDE_OPEN_WAIT = 1.8           # 点开指南后等列表加载
 GUIDE_ITEM_TIMEOUT = 3.0        # 等条目/前往按钮出现
 GUIDE_ITEM_WAIT = 1.5           # 点条目后等界面切换
@@ -640,6 +644,36 @@ class GuideNavTask(PageNavTask):
         if not self.is_main_page():
             self.back_to_main(max_rounds=12, interval=0.8, log=False)
 
+    def open_guide(self, attempts=GUIDE_ENTRY_ATTEMPTS):
+        """点开「指南」，并**确认真的进入了指南界面**。
+
+        为什么要确认：实测出现过"报已点击，但界面根本没换"的情况 ——
+        那时后面所有滑动都在**主页面左侧那一列图标**上做，永远找不到条目，
+        而且日志看起来一切正常（手势、画面差异都有），极难排查。
+
+        判据（用户提出）：点完等 GUIDE_ENTRY_VERIFY_WAIT，如果**还能看到
+        main_guide**（它是主页面上的指南入口图标，进了指南界面就看不到它了），
+        说明还停在主页面 -> 这次没点开 -> 重试。
+
+        这样"进入失败"会在**最外层就被发现**，不会再让后续步骤白跑。
+        """
+        for i in range(1, attempts + 1):
+            if self.should_stop('打开指南'):
+                return False
+            if not self.click_feature(GUIDE_ENTRY, time_out=GUIDE_ENTRY_TIMEOUT):
+                self.log_error(f"未找到 {GUIDE_ENTRY}")
+                return False
+            self.sleep(GUIDE_ENTRY_VERIFY_WAIT)
+            if self._safe_find_one(GUIDE_ENTRY) is None:
+                self.log_info(f"已进入指南界面（第 {i} 次尝试）")
+                self.sleep(GUIDE_OPEN_WAIT)
+                return True
+            self.log_warning(f"第 {i}/{attempts} 次点了 {GUIDE_ENTRY} 但还是停在主页面"
+                             f"（还能看到 {GUIDE_ENTRY}），进入指南失败，重试")
+            self.sleep(0.5)
+        self.log_error(f"连续 {attempts} 次都没能进入指南界面")
+        return False
+
     def enter_guide(self, item_text, go_feature, item_feature=None,
                     max_swipes=GUIDE_SCROLL_MAX):
         """走「指南」进入某个玩法。
@@ -665,11 +699,10 @@ class GuideNavTask(PageNavTask):
             self.log_info("当前不在主页面，先退回主页面")
             self.back_to_main(max_rounds=12, interval=0.8, log=False)
 
-        # 2. 点开指南
-        if not self.click_feature(GUIDE_ENTRY, time_out=GUIDE_ENTRY_TIMEOUT):
-            self.log_error(f"未找到 {GUIDE_ENTRY}，无法通过指南进入「{item_text}」")
+        # 2. 点开指南（**必须确认真的进去了**）
+        if not self.open_guide():
+            self.log_error(f"没能进入指南界面，无法通过指南进入「{item_text}」")
             return False
-        self.sleep(GUIDE_OPEN_WAIT)
 
         # 3. 滑动 + OCR 找条目
         box = self.find_entry_in_guide(item_text, item_feature, max_swipes)

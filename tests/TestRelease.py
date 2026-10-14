@@ -1975,5 +1975,43 @@ class TestRewardModeDisabled(unittest.TestCase):
         self.assertIn('REWARD_MODE_ENABLED', dsrc, '一键日常没有受开关控制')
 
 
+class TestGuideOpenVerification(unittest.TestCase):
+    """点 main_guide 之后必须**确认真的进了指南界面**。
+
+    用户日志实证（2026-10-14 13:41）：报了"已点击 main_guide"，但界面根本没换 ——
+    之后所有 OCR 结果都是主页面内容（活动/排行榜/积分赛/奖励/丰饶之间/任务集/
+    忍界指引/组织/决斗场…），一堆"往下找"全是在滚动主页面左侧那一列图标，
+    永远找不到「小队突袭」。而且日志看起来一切正常，极难排查。
+    """
+
+    def test_open_guide_exists_and_verifies(self):
+        from src.tasks.guide_nav import (
+            GUIDE_ENTRY,
+            GUIDE_ENTRY_ATTEMPTS,
+            GUIDE_ENTRY_VERIFY_WAIT,
+            GuideNavTask,
+        )
+        self.assertTrue(callable(getattr(GuideNavTask, 'open_guide', None)))
+        self.assertGreaterEqual(GUIDE_ENTRY_VERIFY_WAIT, 1.0, '至少等 1 秒再确认')
+        self.assertGreaterEqual(GUIDE_ENTRY_ATTEMPTS, 2, '点不开要能重试')
+
+        with open('src/tasks/guide_nav.py', encoding='utf-8') as f:
+            src = f.read()
+        body = src.split('def open_guide')[1].split('def enter_guide')[0]
+        self.assertIn('GUIDE_ENTRY_VERIFY_WAIT', body, '没有等待就确认')
+        self.assertIn('_safe_find_one(GUIDE_ENTRY)', body,
+                      '没有用 main_guide 判断"是不是还在主页面"')
+        self.assertIn('重试', body)
+
+    def test_enter_guide_goes_through_open_guide(self):
+        """enter_guide 不能再自己裸点 main_guide（那样就绕过了确认）。"""
+        with open('src/tasks/guide_nav.py', encoding='utf-8') as f:
+            src = f.read()
+        enter = src.split('def enter_guide')[1].split('def click_below')[0]
+        self.assertIn('open_guide()', enter, 'enter_guide 没走 open_guide')
+        self.assertNotIn('click_feature(GUIDE_ENTRY', enter,
+                         'enter_guide 还在裸点 GUIDE_ENTRY，绕过了"真进去了吗"的确认')
+
+
 if __name__ == '__main__':
     unittest.main()
