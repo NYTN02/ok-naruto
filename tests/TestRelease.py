@@ -1507,8 +1507,10 @@ class TestGuideAdbSwipeCompensation(unittest.TestCase):
             sweep = f.read().split('def _sweep_entry')[1].split('def click_below')[0]
         self.assertIn('slow_retry_used', sweep, '没有慢速拖动补救')
         self.assertIn('inner_retry_used', sweep, '没有内缩起止线补救')
-        self.assertIn('inner=True', sweep, '没有真的用内缩线滑')
-        self.assertIn('inner_mode', sweep, '内缩线生效后没有沿用')
+        self.assertIn('换成另一条起止线', sweep,
+                              '滑不动时应该换另一条起止线再试（用户实测有效）')
+        self.assertIn('new_inner = not inner_mode', sweep,
+                              '换的是**另一条**线，不是固定换成内缩线')
         # 两级补救都必须排在 stuck_streak 自增之前
         last_stuck = sweep.rindex('stuck_streak += 1')
         self.assertLess(sweep.index('slow_retry_used = True'), last_stuck)
@@ -2215,16 +2217,18 @@ class TestGuideStuckTouchCleanup(unittest.TestCase):
         self.assertGreaterEqual(GUIDE_CLEANUP_PX, 20, '位移太小会被当成点击')
         self.assertLessEqual(GUIDE_CLEANUP_WAIT, 1.0, '这一步要便宜')
 
-    def test_called_first_in_remediation(self):
-        """顺序：清状态 -> 慢速拖动 -> 内缩起止线 -> 计入 stuck。"""
+    def test_remediation_is_the_line_switch_not_cleanup(self):
+        """补偿手段现在是"换另一条起止线"。
+
+        cleanup_stuck_touch()（注入小拖动 / ADB input swipe / 点击列表）
+        三种都实测无效，已经从流程里去掉；测试任务里那条实验也不再需要。
+        """
         with open('src/tasks/guide_nav.py', encoding='utf-8') as f:
-            src = f.read()
-        body = src.split('def _sweep_entry')[1].split('def click_below')[0]
-        i_clean = body.index('cleanup_stuck_touch()')
-        i_slow = body.index('slow_retry_used = True')
-        i_stuck = body.index('stuck_streak += 1')
-        self.assertLess(i_clean, i_slow, '清状态要在慢速拖动之前')
-        self.assertLess(i_clean, i_stuck, '清状态要在计入失败之前')
+            src2 = f.read()
+        body = src2.split('def _sweep_entry')[1].split('def click_below')[0]
+        self.assertNotIn('cleanup_stuck_touch()', body,
+                         '三条通道都试过且无效，不该再调用')
+        self.assertIn('换成另一条起止线', body, '应该改成换线补救')
 
     def test_press_coordinate_matches_the_request(self):
         """滑不动时"先在列表上点一下"——坐标是用户指定的 (0.106, 0.458)。

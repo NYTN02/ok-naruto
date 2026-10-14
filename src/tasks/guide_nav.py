@@ -926,8 +926,8 @@ class GuideNavTask(PageNavTask):
         boundary = GUIDE_LISTBOTTOM if to_bottom else GUIDE_LISTTOP
         stuck_streak = 0
         slow_retry_used = False      # 每个方向只做一次"慢速拖动"补救
-        inner_retry_used = False     # 每个方向只做一次"内缩起止线"补救
-        inner_mode = False           # 内缩线一旦证明有效，后面就一直用它
+        inner_retry_used = False     # 每个方向只做一次"换另一条起止线"补救
+        inner_mode = False           # 当前用哪条线（换线生效后一直用它）
 
         for i in range(1, max_swipes + 1):
             if self.should_stop('指南滑动'):
@@ -962,11 +962,6 @@ class GuideNavTask(PageNavTask):
                 self.log_info(f"[指南] 已经到顶（看到 {GUIDE_LISTTOP}），停止往{direction}找")
                 return None
 
-            # ---- 先冲掉卡住的触摸状态（用户实测"手动滑一下就好了"）----
-            # 放在两级补救之前：如果是触摸卡住，慢速/内缩都救不回来，
-            # 而这一下很便宜（约 0.3 秒）。
-            self.cleanup_stuck_touch()
-
             # ---- 不是边界：两级补救，都失败才计入 stuck ----
             #
             # 补救阶梯（每级只做一次）：
@@ -994,23 +989,25 @@ class GuideNavTask(PageNavTask):
 
             if not inner_retry_used:
                 inner_retry_used = True
+                # ★ 换成**另一条**起止线再试（用户实测：换线能立刻恢复）
+                new_inner = not inner_mode
+                new_name = '内缩线' if new_inner else '用户线'
                 self.log_warning(
-                    f"[指南] 往{direction}还是不动，改用**内缩**的起止线再试一次"
-                    f"（{GUIDE_SCROLL_INNER_FROM_Y} -> {GUIDE_SCROLL_INNER_TO_Y}）"
-                    f"—— 怀疑起点 {GUIDE_SCROLL_DOWN_FROM_Y if to_bottom else GUIDE_SCROLL_UP_FROM_Y}"
-                    f" 没落在列表的可触摸区域里")
+                    f"[指南] 往{direction}滑不动 —— 换成另一条起止线「{new_name}」再试"
+                    f"（用户实测：换线往往就能滑）")
                 before = self.list_thumb()
-                self.scroll_guide(to_bottom=to_bottom, inner=True)
+                self.scroll_guide(to_bottom=to_bottom, inner=new_inner)
                 box = self.find_entry_on_screen(item_pattern, templates)
                 if box is not None:
-                    self.log_info(f"[指南] 内缩起止线后找到「{item_pattern.pattern}」")
+                    self.log_info(f"[指南] 换线后找到「{item_pattern.pattern}」")
                     return box
                 if self.list_moved(before, self.list_thumb()):
-                    self.log_info("[指南] 内缩起止线生效了，后面一直用内缩的线滑动")
-                    inner_mode = True      # 之后都用内缩线，不再重复补救
+                    self.log_info(f"[指南] 换成「{new_name}」生效了，"
+                                  f"后面一直用这条线滑动")
+                    inner_mode = new_inner     # 之后都用这条线，不再换回去
                     stuck_streak = 0
                     continue
-                self.log_warning("[指南] 内缩起止线也没能让画面变化")
+                self.log_warning(f"[指南] 换成「{new_name}」也没能让画面变化")
 
             stuck_streak += 1
             # 仍然按用户当初的要求"判定为滑动出问题"（不能悄悄当成到头了），
