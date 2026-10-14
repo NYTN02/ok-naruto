@@ -195,7 +195,13 @@ GUIDE_ENTRY_TIMEOUT = 5.0       # 等 main_guide 出现
 # 点完 main_guide 之后等多久，再确认"是不是真的进指南了"
 GUIDE_ENTRY_VERIFY_WAIT = 1.0
 # 「滑不动」时用来冲掉卡住触摸状态的小拖动（见 cleanup_stuck_touch）
-GUIDE_CLEANUP_REL = (0.5, 0.45)     # 中性位置：不在左侧列表里，避免误点条目
+GUIDE_CLEANUP_REL = (0.5, 0.45)
+
+# 滑不动时先"点一下列表"再滑（用户建议的做法）。
+# 坐标落在指南左侧列表区域内（x=0.106 在 0.05~0.30 之间，y=0.458 在中部），
+# 所以这一下点的是列表本身 —— 相当于给列表一次完整的 down+up。
+GUIDE_PRESS_REL = (0.106, 0.458)
+GUIDE_PRESS_WAIT = 0.3     # 中性位置：不在左侧列表里，避免误点条目
 GUIDE_CLEANUP_PX = 30               # 超过触摸阈值，不会被当成点击
 GUIDE_CLEANUP_WAIT = 0.4
 # ADB 通道清状态时那条 drag 的时长（毫秒）
@@ -668,7 +674,14 @@ class GuideNavTask(PageNavTask):
             self.back_to_main(max_rounds=12, interval=0.8, log=False)
 
     def cleanup_stuck_touch(self):
-        """滑不动时清一次触摸状态 —— **走 ADB 通道**，不是 IPC。
+        """滑不动时的补救：**先在列表上点一下**（用户建议），再走兜底拖动。
+
+        当前顺序：
+          ① 点一下 rel(0.106, 0.458)（落在指南左侧列表内）—— 用户建议
+          ② 兜底：ADB 通道 `input swipe` 小拖动
+          ③ 再兜底：IPC 通道小拖动
+
+        历史（为什么变成现在这样）：
 
         为什么换通道（测试版本日志2.txt 实测）::
 
@@ -684,6 +697,20 @@ class GuideNavTask(PageNavTask):
         * 起点在中性位置（不在左侧列表里），避免误触条目
         * 拿不到 device_manager.shell 时退回 IPC 版本（聊胜于无）
         """
+        # ★ 第一步（用户建议）：先在列表上**点一下**，再靠调用方去滑。
+        # 点击 = 一次完整的 down + up，比拖动更"干净"；
+        # 而实测拖动（含 ADB 通道）都无效，所以换成点击试试。
+        px = int(self.width * GUIDE_PRESS_REL[0])
+        py = int(self.height * GUIDE_PRESS_REL[1])
+        try:
+            self.log_info(f"[指南] 先在列表上点一下 rel{GUIDE_PRESS_REL}"
+                          f"（{px},{py}）再滑 —— 试试能不能解开卡住的触摸状态")
+            self.click(px, py)
+            self.sleep(GUIDE_PRESS_WAIT)
+            self.reset_scene()      # 让下一步取到新画面，别用点击前的旧帧
+        except Exception as e:
+            self.log_debug(f"点列表失败（继续后面的兜底）: {e}")
+
         x = int(self.width * GUIDE_CLEANUP_REL[0])
         y = int(self.height * GUIDE_CLEANUP_REL[1])
         y2 = y - GUIDE_CLEANUP_PX

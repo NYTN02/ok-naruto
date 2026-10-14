@@ -2226,12 +2226,35 @@ class TestGuideStuckTouchCleanup(unittest.TestCase):
         self.assertLess(i_clean, i_slow, '清状态要在慢速拖动之前')
         self.assertLess(i_clean, i_stuck, '清状态要在计入失败之前')
 
-    def test_cleanup_uses_gesture_not_click(self):
+    def test_press_coordinate_matches_the_request(self):
+        """滑不动时"先在列表上点一下"——坐标是用户指定的 (0.106, 0.458)。
+
+        之前我在这里断言过"不能点击、会误触发"，那是我自己的保守假设；
+        用户明确要求改成点击这个位置，所以规矩跟着改：
+        现在要守的是"点的是用户指定的那个坐标，而且它确实落在左侧列表区域内"。
+        """
+        from src.tasks.guide_nav import (
+            GUIDE_LIST_HIT_X_MAX,
+            GUIDE_LIST_HIT_Y_MAX,
+            GUIDE_LIST_HIT_Y_MIN,
+            GUIDE_PRESS_REL,
+        )
+        self.assertEqual((0.106, 0.458), GUIDE_PRESS_REL, '坐标要用用户给的值')
+        cx, cy = GUIDE_PRESS_REL
+        self.assertLessEqual(cx, GUIDE_LIST_HIT_X_MAX, '应落在左侧列表区域内')
+        self.assertTrue(GUIDE_LIST_HIT_Y_MIN <= cy <= GUIDE_LIST_HIT_Y_MAX)
+
+    def test_cleanup_does_both_press_and_gesture(self):
+        """先点一下（用户要求），再保留拖动兜底。"""
         with open('src/tasks/guide_nav.py', encoding='utf-8') as f:
             src = f.read()
         body = src.split('def cleanup_stuck_touch')[1].split('def open_guide')[0]
-        self.assertIn('self.gesture(', body, '应该用拖动而不是点击')
-        self.assertNotIn('self.click(', body, '这里不能点击 —— 会误触发')
+        self.assertIn('GUIDE_PRESS_REL', body, '没有点一下那一步')
+        self.assertIn('self.click(', body, '应该点击用户指定的位置')
+        self.assertIn('self.gesture(', body, '仍要有拖动兜底')
+        self.assertIn('shell(', body, '仍要有 ADB 通道兜底')
+        # 点完要重置画面，否则下一步拿的是点击前的旧帧
+        self.assertIn('reset_scene()', body, '点完要 reset_scene 让画面刷新')
 
 
 if __name__ == '__main__':
