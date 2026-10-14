@@ -1882,5 +1882,42 @@ class TestRewardScrollLines(unittest.TestCase):
         self.assertIn('return False', enter)
 
 
+class TestRewardScrollSettle(unittest.TestCase):
+    """滑动之后要等画面稳定，再 OCR + 点击。
+
+    用户指出的漏项：横向列表松手后还有惯性滚动，立刻 OCR 拿到的坐标
+    在点下去时已经过期 —— 会点错位置。
+    """
+
+    def test_settle_delay_is_two_seconds(self):
+        from src.tasks.guide_nav import REWARD_SCROLL_AFTER
+        self.assertGreaterEqual(REWARD_SCROLL_AFTER, 2.0,
+                                '滑动后至少要等 2 秒再点，否则会点错位置')
+
+    def test_every_reward_scroll_is_followed_by_wait(self):
+        """每个 scroll_reward 调用后面都必须紧跟等待。"""
+        with open('src/tasks/guide_nav.py', encoding='utf-8') as f:
+            lines = f.read().splitlines()
+        checked = 0
+        for i, ln in enumerate(lines):
+            if 'self.scroll_reward(' not in ln:
+                continue
+            checked += 1
+            # 允许下一行是注释，再下一行是 sleep
+            window = '\n'.join(lines[i + 1:i + 4])
+            self.assertIn('REWARD_SCROLL_AFTER', window,
+                          f'L{i + 1} 的 scroll_reward 后面没有等画面稳定')
+        self.assertGreaterEqual(checked, 2, '应该有两个方向的滑动调用')
+
+    def test_wait_before_clicking_go(self):
+        """点「立刻前往」前也要确认稳定（anchor 一动就可能点偏）。"""
+        with open('src/tasks/guide_nav.py', encoding='utf-8') as f:
+            src = f.read()
+        enter = src.split('def enter_reward')[1].split('def find_reward_item')[0]
+        self.assertIn('REWARD_SCROLL_AFTER', enter, '点「立刻前往」前没有等待')
+        self.assertLess(enter.index('REWARD_SCROLL_AFTER'), enter.index('click_below'),
+                        '等待必须在 click_below 之前')
+
+
 if __name__ == '__main__':
     unittest.main()

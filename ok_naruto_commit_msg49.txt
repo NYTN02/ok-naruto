@@ -1,0 +1,18 @@
+奖励页面滑动后等 2 秒再点（用户指出的漏项）
+
+用户指出: 滑动之后要等画面稳定再点，否则会点错位置。
+
+原因: 横向列表松手后还有惯性滚动。立刻 OCR 得到的坐标，在点下去的时候
+已经过期 —— anchor 位置变了，「立刻前往」是按 anchor 的位置关系找的，
+于是点到旁边去。
+
+改动(guide_nav.py):
+  * 新增 REWARD_SCROLL_AFTER = 2.0
+  * 两个方向的滑动循环里, 每次 scroll_reward 之后都 sleep(REWARD_SCROLL_AFTER)
+    再 OCR
+  * 点「立刻前往」之前也再等一次 —— box 虽然是刚 OCR 出来的,
+    但列表可能还在微动, anchor 一动就可能点偏
+
+门禁: 新增 TestRewardScrollSettle(3 个用例) ——
+延迟 >= 2 秒、每个 scroll_reward 后面都紧跟等待、点「立刻前往」前也有等待。
+TestMain 10 + TestRelease 101 全绿。

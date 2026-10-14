@@ -211,6 +211,10 @@ REWARD_SCROLL_RIGHT_FROM = (0.808, 0.368)
 REWARD_SCROLL_RIGHT_TO = (0.355, 0.378)
 
 REWARD_SCROLL_MAX = 8                 # 单向最多滑几次
+# 滑动之后等画面停稳再 OCR + 点击（秒）。
+# ⚠️ 不能省：横向列表松手后还有惯性滚动，立刻 OCR 拿到的坐标在点下去时
+#    已经过期，会点错位置 —— 用户实测就是这个现象。
+REWARD_SCROLL_AFTER = 2.0
 REWARD_ENTRY_TIMEOUT = 5.0
 REWARD_OPEN_WAIT = 1.8
 REWARD_DAILY_TASK_ATTEMPTS = 3        # 点「每日任务」的重试次数
@@ -511,6 +515,9 @@ class GuideNavTask(PageNavTask):
             self.exit_reward()
             return False
 
+        # 再确认一次画面稳定：box 是刚 OCR 出来的，但列表可能还在微动，
+        # 而「立刻前往」是按 anchor 的位置关系找的，anchor 一动就可能点偏
+        self.sleep(REWARD_SCROLL_AFTER)
         if not self.click_below(box, GO_TEXT_PATTERN, time_out=REWARD_ENTRY_TIMEOUT):
             self.log_warning(f"没找到「{item_text}」正下方的「{GO_TEXT}」")
             self.exit_reward()
@@ -536,6 +543,7 @@ class GuideNavTask(PageNavTask):
                 return None
             self.log_info(f"[每日任务] 往右找 {i}/{max_swipes}：「{item_text}」")
             self.scroll_reward(to_left=False)
+            self.sleep(REWARD_SCROLL_AFTER)      # 等画面停稳，否则会点错位置
             box = self.find_reward_item_on_screen(pattern)
             if box is not None:
                 self.log_info(f"[每日任务] 往右找 {i} 次后找到「{item_text}」")
@@ -546,6 +554,7 @@ class GuideNavTask(PageNavTask):
                 return None
             self.log_info(f"[每日任务] 往左找 {i}/{max_swipes * 2}：「{item_text}」")
             self.scroll_reward(to_left=True)
+            self.sleep(REWARD_SCROLL_AFTER)      # 同上
             box = self.find_reward_item_on_screen(pattern)
             if box is not None:
                 self.log_info(f"[每日任务] 往左找 {i} 次后找到「{item_text}」")
