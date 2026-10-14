@@ -1,5 +1,6 @@
 import ok
 from src.config import config
+from src.dev_compat import apply as apply_dev_compat
 from src.mumu_compat import apply as apply_mumu_compat
 from src.tempdir import ensure_usable_temp
 
@@ -9,6 +10,7 @@ if __name__ == '__main__':
     ensure_usable_temp()
     # 新版 MuMu（15+）的原生 IPC 路径适配，见 src/mumu_compat.py
     apply_mumu_compat()
+    apply_dev_compat()
     config = config
     config['debug'] = True
     ok = ok.OK(config)

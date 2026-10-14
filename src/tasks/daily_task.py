@@ -236,9 +236,13 @@ class DailyTask(PageNavTask):
         task._parent_task = self
         # 把「进入方式」透传给支持它的子任务。一键日常是总开关，
         # 所以这里直接覆盖子任务自己的选择 —— 用户只该在这一个地方配。
-        if task.supports_entry_mode():
+        # ⚠️ 必须用 getattr 兜底：**不是所有子任务都继承 PageNavTask** ——
+        # NoodleTask 就不是（实测它一跑到这里就 AttributeError，整条日常链中断）。
+        # supports_entry_mode 只有 PageNavTask 的子类才有。
+        supports = getattr(task, 'supports_entry_mode', None)
+        if callable(supports) and supports():
             task.config[ENTRY_MODE_KEY] = self.config.get(ENTRY_MODE_KEY,
-                                                       ENTRY_MODE_GUIDE)
+                                                          ENTRY_MODE_GUIDE)
         try:
             task.run()
             return True

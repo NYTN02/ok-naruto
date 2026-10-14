@@ -2063,5 +2063,51 @@ class TestGuideOcrPrefixFallback(unittest.TestCase):
         self.assertIn('log_warning', body)
 
 
+class TestDailySubTaskGuard(unittest.TestCase):
+    """一键日常透传「进入方式」时必须用 getattr 兜底。
+
+    踩过的坑（用户实测 2026-10-14 14:07）：supports_entry_mode 定义在
+    PageNavTask 上，我默认所有子任务都继承它 —— 但 **NoodleTask 不是**，
+    于是一跑到「领取一乐拉面」就 AttributeError，**整条日常链被中断**。
+
+    教训：跨任务调用能力探测一定要 getattr 兜底，不能假设继承关系。
+    """
+
+    def test_entry_mode_transfer_uses_getattr(self):
+        with open('src/tasks/daily_task.py', encoding='utf-8') as f:
+            src = f.read()
+        body = src.split('def run_sub_task')[1]
+        self.assertIn("getattr(task, 'supports_entry_mode'", body,
+                      '没有用 getattr 兜底探测')
+        self.assertIn('callable(supports)', body, '没有确认可调用')
+        self.assertNotIn('if task.supports_entry_mode():', body,
+                         '直接调用会在没有该方法的子任务上抛 AttributeError')
+
+    def test_some_task_really_lacks_the_method(self):
+        """确认"不是所有子任务都有这个方法"这件事本身（解释了为什么要兜底）。"""
+        import importlib
+        from src.tasks.noodle_task import NoodleTask
+        from src.tasks.mission_task import MissionTask
+        self.assertFalse(hasattr(NoodleTask, 'supports_entry_mode'),
+                         'NoodleTask 不该有这个属性（它不继承 PageNavTask）')
+        self.assertTrue(hasattr(MissionTask, 'supports_entry_mode'),
+                        'MissionTask 应该有（走指南的那些任务）')
+
+    def test_dev_compat_suppresses_only_filenotfound(self):
+        """开发模式降噪补丁只能压 FileNotFoundError，别的异常要照旧抛。"""
+        with open('src/dev_compat.py', encoding='utf-8') as f:
+            src = f.read()
+        self.assertIn('FileNotFoundError', src)
+        self.assertIn('raise', src, '只该压 pyappify 找不到可执行文件那一类')
+
+    def test_dev_compat_is_wired_into_entry_points(self):
+        for name in ('main.py', 'main_debug.py'):
+            with open(name, encoding='utf-8') as f:
+                src = f.read()
+            self.assertIn('apply_dev_compat()', src, f'{name} 没接入降噪补丁')
+            # 缩进要对（我插错过一次，直接插到第 0 列导致 IndentationError）
+            self.assertIn('    apply_dev_compat()', src, f'{name} 里的调用缩进不对')
+
+
 if __name__ == '__main__':
     unittest.main()
