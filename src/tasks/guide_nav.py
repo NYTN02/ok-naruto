@@ -198,6 +198,8 @@ GUIDE_ENTRY_VERIFY_WAIT = 1.0
 GUIDE_CLEANUP_REL = (0.5, 0.45)     # 中性位置：不在左侧列表里，避免误点条目
 GUIDE_CLEANUP_PX = 30               # 超过触摸阈值，不会被当成点击
 GUIDE_CLEANUP_WAIT = 0.4
+# ADB 通道清状态时那条 drag 的时长（毫秒）
+GUIDE_CLEANUP_ADB_MS = 200
 # 点不开就重试几次（见 open_guide 的说明）
 GUIDE_ENTRY_ATTEMPTS = 3
 GUIDE_OPEN_WAIT = 1.8           # 点开指南后等列表加载
@@ -666,25 +668,44 @@ class GuideNavTask(PageNavTask):
             self.back_to_main(max_rounds=12, interval=0.8, log=False)
 
     def cleanup_stuck_touch(self):
-        """发一个完整的小拖动，冲掉可能卡住的触摸状态。
+        """滑不动时清一次触摸状态 —— **走 ADB 通道**，不是 IPC。
 
-        用户实测：滑不动之后**手动滑一下，软件就能继续滑** —— 说明卡的是
-        注入的触摸状态（例如上一次手势的"抬起"没送达，游戏以为手指还按着），
-        后续拖动就被当成同一次按住而不生效。
+        为什么换通道（测试版本日志2.txt 实测）::
 
-        这里模拟那一下手动滑动：
-          * 起点用中性位置，**不在左侧列表里** —— 避免把条目点开
-          * 位移超过触摸阈值 —— 不会被当成点击
-        代价很小（约 0.3 秒），只在"画面没动"时才调用。
+            [往下找] 第 1/5 次：画面差异 0.000  指纹 118974 -> 118974
+            [指南] 补一次小拖动…（IPC 注入）
+            [往下找] ✗ 清理手势没用，指纹 118974 -> 118974
+
+        IPC 版本的小拖动**同样被吞掉** —— 说明那一刻 MuMu 的原生注入通道整体失效，
+        而用户手动滑一下能恢复。所以这里改用 `adb shell input swipe`：
+        它走 adbd / Android 输入系统，和原生 IPC 注入是两条独立的路。
+
+        * 仍然用**小拖动**而不是点击 —— 位移超过触摸阈值，不会被当成点击
+        * 起点在中性位置（不在左侧列表里），避免误触条目
+        * 拿不到 device_manager.shell 时退回 IPC 版本（聊胜于无）
         """
         x = int(self.width * GUIDE_CLEANUP_REL[0])
         y = int(self.height * GUIDE_CLEANUP_REL[1])
-        self.log_info("[指南] 补一次小拖动，冲掉可能卡住的触摸状态"
-                      f"（模拟手动滑一下）({x},{y}) -> ({x},{y - GUIDE_CLEANUP_PX})")
+        y2 = y - GUIDE_CLEANUP_PX
+
+        sent = False
         try:
-            self.gesture(x, y, x, y - GUIDE_CLEANUP_PX, duration=0.2)
+            shell = self.executor.device_manager.shell
+            shell('input', 'swipe', str(x), str(y), str(x), str(y2),
+                  str(GUIDE_CLEANUP_ADB_MS))
+            sent = True
+            self.log_info(f"[指南] 已用 **ADB 通道**发一次小拖动清状态 "
+                          f"({x},{y})->({x},{y2})")
         except Exception as e:
-            self.log_debug(f"清状态手势失败（不影响后续）: {e}")
+            self.log_warning(f"[指南] ADB 通道清状态失败（{e}），退回 IPC 版本")
+
+        if not sent:
+            try:
+                self.gesture(x, y, x, y2, duration=0.2)
+                self.log_info("[指南] 已用 IPC 通道发一次小拖动清状态")
+            except Exception as e:
+                self.log_debug(f"清状态手势也失败（不影响后续）: {e}")
+
         self.sleep(GUIDE_CLEANUP_WAIT)
 
     def open_guide(self, attempts=GUIDE_ENTRY_ATTEMPTS):
