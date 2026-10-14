@@ -1,0 +1,7 @@
+docs: Release 正文与 README 的「使用前提」支持 MuMu 12/15
+
+两处都只写了 MuMuPlayer-12.0-0；MuMu 15 上实际是 MuMuPlayer-15.0-0，
+只写 12 会让 15 的用户不知道选哪个，所以两个都列出来。
+
+* .github/workflows/build.yml —— Release 正文里的「使用前提」
+* README.md —— 安装步骤第 4 步的设备选择
