@@ -124,6 +124,33 @@ jobs:
           gitignore_file: '.update_repo_gitignore'
           show_author: true #在更新日志中加入作者
 
+      # ======================================================================
+      # 把更新仓库里的「更新日志」换成 release-notes 文件的内容。
+      #
+      # 为什么需要这一步：partial-sync-repo **没有"自定义更新日志"的输入**
+      # （它的 action.yml 只有 repos/sync_list/tag/gitignore_file/show_author），
+      # 所以它只能用**提交标题**拼更新日志，写进更新仓库的 commit / tag message。
+      # 而**启动器的更新卡直接显示那份 message** —— 提交标题里只要有
+      # chore:/docs:/（用户指出的…）/(NYTN02) 这类内容，就会原样给用户看到。
+      #
+      # v0.1.13 就是这么泄漏的：第一次只修了 GitHub Release 正文、没管更新卡；
+      # 第二次才手动去改 GitHub + CNB 两个更新仓库的 message。
+      # 这一步把那套手动操作固化下来，让**更新日志只有一处来源**：
+      #   .github/release-notes/<tag>.md （发版前人工审过的那份）
+      #
+      # 没有对应文件时脚本自己会跳过（返回 0），所以不是每个版本都必须写。
+      # ======================================================================
+      - name: Set Update Note From Release Notes
+        shell: pwsh
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          python scripts/set_update_note.py `
+            --tag "$env:TAG" `
+            --notes ".github/release-notes/$env:TAG.md" `
+            --repo "https://NYTN02:${{ secrets.OK_GH }}@github.com/NYTN02/ok-naruto-update.git" `
+            --repo "https://cnb:${{ secrets.CNB_TOKEN }}@cnb.cool/NekoBoxNeko/ok-naruto.git"
+
       - name: Build with PyAppify Action
         id: build-app
         uses: ok-oldking/pyappify-action@master #使用pyappify打包exe

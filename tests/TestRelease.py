@@ -18,6 +18,7 @@ import ast
 import glob
 import json
 import os
+import pathlib
 import re
 import tempfile
 import unittest
@@ -714,7 +715,7 @@ class TestGuideEntry(unittest.TestCase):
         self.assertIn('self.click_box(', body, '没有点击命中的渠道')
         self.assertIn('should_stop(', body, 'click_share_target 没有响应停止')
         # 两个渠道模板都必须真实存在（名字写错会抛 FeatureSet not found）
-        coco = json.load(open(COCO_PATH, encoding='utf-8'))
+        coco = _load_json(COCO_PATH)
         names = {c['name'] for c in coco['categories']}
         for target in SHARE_TARGETS:
             self.assertIn(target, names, f'模板 {target} 不存在于标注里')
@@ -726,7 +727,7 @@ class TestGuideEntry(unittest.TestCase):
         （表现是"按住往下滑没办法正常滚动"）。现在用的是需求里给定的两条固定线，
         这里直接从标注里算出列表范围来校验它们。
         """
-        coco = json.load(open(COCO_PATH, encoding='utf-8'))
+        coco = _load_json(COCO_PATH)
         cats = {c['id']: c['name'] for c in coco['categories']}
         imgs = {i['id']: i for i in coco['images']}
         centers = {}
@@ -1106,6 +1107,18 @@ def pathlib_read(path):
         return f.read()
 
 
+def _load_json(path):
+    """读 json 并**确保关闭文件**。
+
+    原来是 _load_json(...) —— 文件句柄交给 GC，测试跑完会累积一堆
+    未关闭的文件；CI 上表现为 ResourceWarning: unclosed file 和
+    "gc: N uncollectable objects at shutdown"，最终**解释器关闭阶段静默崩溃**
+    （连 unittest 的 "Ran N tests" 都不打印），发布因此被误拦。
+    """
+    with open(path, encoding='utf-8') as f:
+        return json.load(f)
+
+
 def _code_only(src):
     """去掉**注释和文档字符串**后的代码文本。
 
@@ -1473,7 +1486,7 @@ class TestGuideAdbSwipeCompensation(unittest.TestCase):
         self.assertLess(GUIDE_SCROLL_INNER_FROM_Y, 0.777, '内缩线的起点应该更靠里')
         self.assertGreater(GUIDE_SCROLL_INNER_TO_Y, 0.325, '内缩线的终点应该更靠里')
         # 落在列表范围内（按标注量出来约 0.162 ~ 0.828），且离边缘留有余量
-        coco = json.load(open(COCO_PATH, encoding='utf-8'))
+        coco = _load_json(COCO_PATH)
         cats = {c['id']: c['name'] for c in coco['categories']}
         imgs = {i['id']: i for i in coco['images']}
         centers = {}
@@ -2107,6 +2120,76 @@ class TestDailySubTaskGuard(unittest.TestCase):
             self.assertIn('apply_dev_compat()', src, f'{name} 没接入降噪补丁')
             # 缩进要对（我插错过一次，直接插到第 0 列导致 IndentationError）
             self.assertIn('    apply_dev_compat()', src, f'{name} 里的调用缩进不对')
+
+
+class TestSetUpdateNoteScript(unittest.TestCase):
+    """根治脚本：更新日志必须来自 release-notes 文件。
+
+    partial-sync-repo 没有"自定义更新日志"的输入，只能用提交标题拼 ——
+    而启动器更新卡直接显示它，于是 docs:/chore:/(用户指出) 这类内部内容
+    会原样给用户看到（v0.1.13 就这么泄漏了两次）。
+    scripts/set_update_note.py 负责在同步之后把它换成人工审过的那份文案。
+    """
+
+    def _mod(self):
+        import importlib.util
+        path = 'scripts/set_update_note.py'
+        spec = importlib.util.spec_from_file_location('set_update_note', path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_reads_the_real_v0_1_13_file(self):
+        """★ 用真实的发布说明文件做回归：正好 5 条，且没有内部措辞。"""
+        mod = self._mod()
+        notes = mod.read_notes(pathlib.Path('.github/release-notes/v0.1.13.md'))
+        self.assertEqual(5, len(notes), f'应为 5 条，实际 {notes}')
+        for n in notes:
+            self.assertFalse(n.startswith(('*', '-', '+')), f'没去掉列表符号: {n}')
+            for bad in ('NYTN02', '用户指出', 'docs:', 'chore:', '门禁'):
+                self.assertNotIn(bad, n, f'第「{n}」条里有内部措辞 {bad}')
+
+    def test_strips_bullets_and_skips_headings(self):
+        mod = self._mod()
+        with tempfile.TemporaryDirectory() as d:
+            f = pathlib.Path(d) / 'x.md'
+            f.write_text('# 标题\n\n* 第一条\n- 第二条\n\n## 小标题\n+ 第三条\n---\n',
+                         encoding='utf-8')
+            self.assertEqual(['第一条', '第二条', '第三条'], mod.read_notes(f))
+
+    def test_missing_file_is_not_an_error(self):
+        """没有对应文件时应安静跳过（不是每个版本都必须写）。"""
+        mod = self._mod()
+        with tempfile.TemporaryDirectory() as d:
+            missing = pathlib.Path(d) / 'nope.md'
+            with self.assertRaises(FileNotFoundError):
+                mod.read_notes(missing)
+            # CLI 路径下应是"跳过 + 返回 0"
+            rc = mod.main(['--tag', 'v9.9.9', '--notes', str(missing),
+                           '--repo', 'https://example.invalid/x.git'])
+            self.assertEqual(0, rc, '缺文件时应返回 0（跳过），不该让发布失败')
+
+    def test_scrubs_credentials_from_output(self):
+        """URL 里内嵌的凭据不能出现在任何输出里。"""
+        mod = self._mod()
+        url = 'https://user:S3CR3T-TOKEN@example.com/a/b.git'
+        secrets = mod.credentials_in(url)
+        self.assertTrue(secrets)
+        text = f'fatal: unable to access {url}'
+        scrubbed = mod.scrub(text, secrets)
+        self.assertNotIn('S3CR3T-TOKEN', scrubbed)
+        self.assertIn('***', scrubbed)
+        self.assertEqual('https://example.com/a/b.git', mod.clean_url(url))
+
+    def test_workflow_runs_it_after_sync(self):
+        """workflow 里必须真的调用它，且在 Sync Repositories 之后。"""
+        with open('.github/workflows/build.yml', encoding='utf-8') as f:
+            wf = f.read()
+        self.assertIn('scripts/set_update_note.py', wf, 'workflow 没调用根治脚本')
+        self.assertLess(wf.index('Sync Repositories'),
+                        wf.index('scripts/set_update_note.py'),
+                        '必须在同步之后跑（同步会先把脏日志写进去）')
+        self.assertIn('release-notes', wf, '没把 release-notes 文件传进去')
 
 
 if __name__ == '__main__':

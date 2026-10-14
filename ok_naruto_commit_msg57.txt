@@ -1,0 +1,38 @@
+根治: 更新日志改从 release-notes 文件来 + 修测试未关闭的文件
+
+【1】根治更新卡泄漏（新增 scripts/set_update_note.py + workflow 步骤）
+     partial-sync-repo **没有"自定义更新日志"的输入**（action.yml 只有
+     repos/sync_list/tag/gitignore_file/show_author），只能用**提交标题**拼，
+     写进更新仓库的 commit/tag message —— 而**启动器更新卡直接显示它**。
+     v0.1.13 因此泄漏两次: 第一次只修了 Release 正文、没管更新卡;
+     第二次才手动去改 GitHub + CNB 两个更新仓库的 message。
+
+     现在 workflow 在 Sync Repositories 之后跑:
+       python scripts/set_update_note.py --tag <tag>          --notes .github/release-notes/<tag>.md          --repo <GitHub 更新库> --repo <CNB>
+     脚本做的事: 读文案 -> 每个仓库 clone / 改写 commit+tag message / 强推
+                 -> **重新 clone 回查**两处是否都等于目标文案
+     没有对应文件时安静跳过（返回 0），不影响发布。
+
+     更新日志从此**只有一处来源** = 发版前人工审过的那份文件。
+     本地已对 CNB 实跑验证: commit 一致=True tag 一致=True ✓
+
+     安全: URL 里的凭据一律脱敏后才打印; clone 完立刻把带凭据的 remote
+           换掉; 只用临时目录并在结束时删除。
+
+【2】修 CI 偶发崩溃的根因（测试未关闭的文件）
+     json.load(open(...)) 把文件句柄交给 GC，测试跑完累积一批未关闭文件，
+     CI 上表现为 ResourceWarning: unclosed file + "gc: N uncollectable
+     objects at shutdown"，最终**解释器关闭阶段静默崩溃**（连 "Ran N tests"
+     都不打印），发布因此被误拦、只能靠手动重跑绕过。
+     新增 _load_json() 助手（with open），把全部 json.load(open(...)) 换掉。
+
+门禁新增 TestSetUpdateNoteScript(5 个用例):
+  * 用真实的 v0.1.13 文件回归（正好 5 条、无内部措辞、无列表符号残留）
+  * 去符号 / 跳标题 / 跳分隔线的解析行为
+  * 缺文件时返回 0（跳过而不是失败）
+  * 凭据脱敏 + clean_url
+  * workflow 必须调用它、且在 Sync Repositories 之后
+
+(过程中两次被门禁拦下: ① _load_json 多收了 encoding 参数(3 个用例 TypeError);
+ ② 新用例用了 pathlib 但测试文件没 import —— 后者在同一轮里踩了第二次,
+ 已记进 process.txt 那类"批量改动要检查依赖"的清单。)
