@@ -194,6 +194,10 @@ GUIDE_STUCK_TOLERANCE = 2         # 连续几次滑不动就放弃这个方向
 GUIDE_ENTRY_TIMEOUT = 5.0       # 等 main_guide 出现
 # 点完 main_guide 之后等多久，再确认"是不是真的进指南了"
 GUIDE_ENTRY_VERIFY_WAIT = 1.0
+# 「滑不动」时用来冲掉卡住触摸状态的小拖动（见 cleanup_stuck_touch）
+GUIDE_CLEANUP_REL = (0.5, 0.45)     # 中性位置：不在左侧列表里，避免误点条目
+GUIDE_CLEANUP_PX = 30               # 超过触摸阈值，不会被当成点击
+GUIDE_CLEANUP_WAIT = 0.4
 # 点不开就重试几次（见 open_guide 的说明）
 GUIDE_ENTRY_ATTEMPTS = 3
 GUIDE_OPEN_WAIT = 1.8           # 点开指南后等列表加载
@@ -661,6 +665,28 @@ class GuideNavTask(PageNavTask):
         if not self.is_main_page():
             self.back_to_main(max_rounds=12, interval=0.8, log=False)
 
+    def cleanup_stuck_touch(self):
+        """发一个完整的小拖动，冲掉可能卡住的触摸状态。
+
+        用户实测：滑不动之后**手动滑一下，软件就能继续滑** —— 说明卡的是
+        注入的触摸状态（例如上一次手势的"抬起"没送达，游戏以为手指还按着），
+        后续拖动就被当成同一次按住而不生效。
+
+        这里模拟那一下手动滑动：
+          * 起点用中性位置，**不在左侧列表里** —— 避免把条目点开
+          * 位移超过触摸阈值 —— 不会被当成点击
+        代价很小（约 0.3 秒），只在"画面没动"时才调用。
+        """
+        x = int(self.width * GUIDE_CLEANUP_REL[0])
+        y = int(self.height * GUIDE_CLEANUP_REL[1])
+        self.log_info("[指南] 补一次小拖动，冲掉可能卡住的触摸状态"
+                      f"（模拟手动滑一下）({x},{y}) -> ({x},{y - GUIDE_CLEANUP_PX})")
+        try:
+            self.gesture(x, y, x, y - GUIDE_CLEANUP_PX, duration=0.2)
+        except Exception as e:
+            self.log_debug(f"清状态手势失败（不影响后续）: {e}")
+        self.sleep(GUIDE_CLEANUP_WAIT)
+
     def open_guide(self, attempts=GUIDE_ENTRY_ATTEMPTS):
         """点开「指南」，并**确认真的进入了指南界面**。
 
@@ -887,6 +913,11 @@ class GuideNavTask(PageNavTask):
             if not to_bottom and self.at_guide_top():
                 self.log_info(f"[指南] 已经到顶（看到 {GUIDE_LISTTOP}），停止往{direction}找")
                 return None
+
+            # ---- 先冲掉卡住的触摸状态（用户实测"手动滑一下就好了"）----
+            # 放在两级补救之前：如果是触摸卡住，慢速/内缩都救不回来，
+            # 而这一下很便宜（约 0.3 秒）。
+            self.cleanup_stuck_touch()
 
             # ---- 不是边界：两级补救，都失败才计入 stuck ----
             #

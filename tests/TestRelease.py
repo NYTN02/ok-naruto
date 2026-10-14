@@ -2192,5 +2192,47 @@ class TestSetUpdateNoteScript(unittest.TestCase):
         self.assertIn('release-notes', wf, '没把 release-notes 文件传进去')
 
 
+class TestGuideStuckTouchCleanup(unittest.TestCase):
+    """滑不动时先补一次小拖动 —— 模拟"用户手动滑一下就好了"。
+
+    用户实测(2026-10-14)：滑不动出现后**自己手动滑一下，软件就能继续滑**。
+    这说明卡住的是**注入的触摸状态**，不是坐标、也不是列表位置 ——
+    同一台机器同一坐标，一次 5/5 全 0、一次首次就成；日志里用户线和
+    内缩线都出现过全 0。所以补救顺序要以"清状态"打头。
+    """
+
+    def test_constants_are_sane(self):
+        from src.tasks.guide_nav import (
+            GUIDE_CLEANUP_PX,
+            GUIDE_CLEANUP_REL,
+            GUIDE_CLEANUP_WAIT,
+            GUIDE_LIST_HIT_X_MAX,
+        )
+        # 起点必须在左侧列表之外 —— 否则可能把条目点开
+        self.assertGreater(GUIDE_CLEANUP_REL[0], GUIDE_LIST_HIT_X_MAX,
+                           '清状态手势的起点不该落在左侧列表里')
+        # 位移要超过触摸阈值，否则会被当成"点击"
+        self.assertGreaterEqual(GUIDE_CLEANUP_PX, 20, '位移太小会被当成点击')
+        self.assertLessEqual(GUIDE_CLEANUP_WAIT, 1.0, '这一步要便宜')
+
+    def test_called_first_in_remediation(self):
+        """顺序：清状态 -> 慢速拖动 -> 内缩起止线 -> 计入 stuck。"""
+        with open('src/tasks/guide_nav.py', encoding='utf-8') as f:
+            src = f.read()
+        body = src.split('def _sweep_entry')[1].split('def click_below')[0]
+        i_clean = body.index('cleanup_stuck_touch()')
+        i_slow = body.index('slow_retry_used = True')
+        i_stuck = body.index('stuck_streak += 1')
+        self.assertLess(i_clean, i_slow, '清状态要在慢速拖动之前')
+        self.assertLess(i_clean, i_stuck, '清状态要在计入失败之前')
+
+    def test_cleanup_uses_gesture_not_click(self):
+        with open('src/tasks/guide_nav.py', encoding='utf-8') as f:
+            src = f.read()
+        body = src.split('def cleanup_stuck_touch')[1].split('def open_guide')[0]
+        self.assertIn('self.gesture(', body, '应该用拖动而不是点击')
+        self.assertNotIn('self.click(', body, '这里不能点击 —— 会误触发')
+
+
 if __name__ == '__main__':
     unittest.main()
