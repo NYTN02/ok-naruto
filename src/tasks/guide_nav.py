@@ -690,12 +690,12 @@ class GuideNavTask(PageNavTask):
 
         sent = False
         try:
-            shell = self.executor.device_manager.shell
-            shell('input', 'swipe', str(x), str(y), str(x), str(y2),
-                  str(GUIDE_CLEANUP_ADB_MS))
+            # ⚠️ 必须把整条命令当**一个字符串**传：BaseDevice.shell() 只收
+            # 2~6 个位置参数，拆成 7 个会 TypeError（上次就是这么静默退回 IPC 的）。
+            cmd = f'input swipe {x} {y} {x} {y2} {GUIDE_CLEANUP_ADB_MS}'
+            self.executor.device_manager.shell(cmd)
             sent = True
-            self.log_info(f"[指南] 已用 **ADB 通道**发一次小拖动清状态 "
-                          f"({x},{y})->({x},{y2})")
+            self.log_info(f"[指南] 已用 **ADB 通道**发一次小拖动清状态: {cmd}")
         except Exception as e:
             self.log_warning(f"[指南] ADB 通道清状态失败（{e}），退回 IPC 版本")
 
