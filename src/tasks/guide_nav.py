@@ -37,6 +37,7 @@
 不到万不得已不做。
 """
 
+import sys
 import re
 import time
 
@@ -135,6 +136,9 @@ GUIDE_SCROLL_INNER_TO_Y = 0.400
 #   * 拿到框之后还要点它下方的「前往」才算成功，取错条目那一步也会失败
 GUIDE_ENTRY_PREFIX_LEN_SAMPLE = '小队突袭 / 任务集会所 / 丰饶之间 / 积分赛 …'
 GUIDE_ENTRY_PREFIX_LEN = 2
+
+# 子类可覆盖：显式指定容错用的前缀（None = 按上面自动推导）
+GUIDE_PREFIX_TEXT = None
 
 GUIDE_LIST_HIT_X_MAX = 0.35          # 条目中心 x 超过这个值就认为不是列表条目
 GUIDE_LIST_HIT_Y_MIN = 0.10
@@ -849,6 +853,20 @@ class GuideNavTask(PageNavTask):
         和把长名字截断（任务集会所 -> 任务集）。见 GUIDE_ENTRY_PREFIX_LEN。
         """
         patterns = [item_pattern]
+
+        # 子类可以显式指定容错用的前缀（GUIDE_PREFIX_TEXT）：
+        # 有些条目的自动 2 字前缀会撞上界面上别的文字，必须手动指定。
+        # 先看类属性，再看**任务所在模块**的同名常量
+        # （本项目的任务常量都写在模块级，例如 mission_task.GUIDE_PREFIX_TEXT）。
+        explicit = getattr(self, 'GUIDE_PREFIX_TEXT', None)
+        if explicit is None:
+            mod = sys.modules.get(type(self).__module__)
+            explicit = getattr(mod, 'GUIDE_PREFIX_TEXT', None)
+        if explicit is not None:
+            if explicit and explicit != item_pattern.pattern:
+                patterns.append(re.compile(re.escape(explicit)))
+            return patterns
+
         plain = re.sub(r'[^\w\u4e00-\u9fff]', '', item_pattern.pattern)
         if len(plain) >= GUIDE_ENTRY_PREFIX_LEN:
             prefix = plain[:GUIDE_ENTRY_PREFIX_LEN]

@@ -761,7 +761,7 @@ class TestGuideEntry(unittest.TestCase):
         """
         import importlib
         expected = {
-            'mission_task': '任务集会所',
+            'mission_task': '任务集',
             'ranklist_task': '排行榜',
             'pointrace_task': '积分赛',
             'teamfight_task': '小队突袭',
@@ -2300,6 +2300,41 @@ class TestGuideTasksShareOneSweep(unittest.TestCase):
             src = f.read()
         self.assertNotIn('enter_by_mode', src,
                          '组织祈福不该走指南入口（它走 main_reward）')
+
+
+class TestMissionEntryText(unittest.TestCase):
+    """任务集会所的识别文字必须是「任务集」，不能退化成「任务」。
+
+    自动推导的容错前缀是 2 个字（GUIDE_ENTRY_PREFIX_LEN=2）：
+    "任务集会所" -> "任务"，而指南界面上本来就有一处独立显示的「任务」标签，
+    可能误匹配到它。所以改成"任务集" + 显式指定容错前缀。
+    """
+
+    def test_text_and_prefix(self):
+        from src.tasks.mission_task import GUIDE_PREFIX_TEXT, GUIDE_TEXT
+        self.assertEqual('任务集', GUIDE_TEXT)
+        self.assertEqual('任务集', GUIDE_PREFIX_TEXT)
+
+    def test_patterns_do_not_include_bare_renwu(self):
+        import re
+        from src.tasks.mission_task import GUIDE_TEXT, MissionTask
+        F = type('F', (MissionTask,), {'__module__': 'src.tasks.mission_task',
+                                       '__init__': lambda self: None})
+        pats = [p.pattern for p in F()._entry_patterns(re.compile(GUIDE_TEXT))]
+        self.assertNotIn('任务', pats, '不能退化成 2 字的「任务」')
+        # 完整名字和被截断的形式都还要能命中
+        for ocr in ('任务集会所', '任务集'):
+            self.assertTrue(any(re.search(p, ocr) for p in pats),
+                            f'OCR「{ocr}」应该能命中')
+
+    def test_other_tasks_keep_auto_prefix(self):
+        """其它任务仍用自动推导的 2 字前缀（行为不变）。"""
+        import re
+        from src.tasks.teamfight_task import TeamFightTask
+        F = type('F', (TeamFightTask,), {'__module__': 'src.tasks.teamfight_task',
+                                         '__init__': lambda self: None})
+        pats = [p.pattern for p in F()._entry_patterns(re.compile('小队突袭'))]
+        self.assertEqual(['小队突袭', '小队'], pats)
 
 
 if __name__ == '__main__':

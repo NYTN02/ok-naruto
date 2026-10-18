@@ -3,7 +3,10 @@ from src.tasks.guide_nav import GuideNavTask
 # 进入方式：走「指南」列表（原来是在主页面找 main_mission，
 # 但每个玩家主页背景不同、经常匹配不到；指南列表位置固定得多）
 GUIDE_ITEM = 'guide_mission'
-GUIDE_TEXT = '任务集会所'   # 指南列表里条目的文字（OCR 识别）
+GUIDE_TEXT = '任务集'   # 指南列表里条目的文字（OCR 子串匹配）
+# 显式指定容错前缀：自动推导会得到 2 字的「任务」，
+# 而指南界面上本来就有一处独立的「任务」标签，容易误匹配。
+GUIDE_PREFIX_TEXT = '任务集'
 REWARD_ITEM_TEXT = '集会所'   # 走「奖励」时在每日任务里识别的文字
 GUIDE_GO = 'guide_missiongo'
 
