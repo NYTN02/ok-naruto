@@ -19,6 +19,11 @@ PERSONAL_SHARE_RECLICK_TIMEOUT = 3
 # 检测 share_qq / share_wechat 时再宽限一点（分享面板有弹出动画）。
 # 用户要求的是"点完等 1 秒再检测"，这里的 2 秒只是给动画留点余量。
 SHARE_TARGET_TIMEOUT = 2.0
+
+# 进分享页后可能先弹 weeklyrendao_yes —— 点掉它，personal_share 才会出来。
+WEEKLY_YES_TIMEOUT = 1.5    # 找 weeklyrendao_yes 等多久（没有就别干等）
+WEEKLY_YES_WAIT = 1.0       # 点完之后等多久
+WEEKLY_YES_MAX = 10         # 最多点几次，防止死循环
 # 点中分享渠道之后等目标 App 起来的时间
 SHARE_APP_WAIT = 3.0
 
@@ -85,7 +90,25 @@ class ShareTask(PageNavTask):
         self.log_info("已点击分享入口，进入分享页面")
         self.sleep(SHARE_ENTRY_WAIT)
 
-        # 2. 检测并点击 personal_share，最多 PERSONAL_SHARE_CLICKS 次
+        # 2. 若出现 weeklyrendao_yes，先点掉它，直到它消失
+        #    （用户说明：点掉之后 personal_share 才会出来）
+        weekly_clicks = 0
+        for k in range(1, WEEKLY_YES_MAX + 1):
+            if self.should_stop('每日分享'):
+                return False
+            if not self.safe_click_feature('weeklyrendao_yes', threshold=0.8,
+                                           time_out=WEEKLY_YES_TIMEOUT):
+                if weekly_clicks:
+                    self.log_info(f"weeklyrendao_yes 已经消失（共点了 {weekly_clicks} 次）")
+                break
+            weekly_clicks += 1
+            self.log_info(f"第 {k}/{WEEKLY_YES_MAX} 次点击 weeklyrendao_yes")
+            self.sleep(WEEKLY_YES_WAIT)
+        if weekly_clicks >= WEEKLY_YES_MAX:
+            self.log_warning(f"weeklyrendao_yes 连点 {WEEKLY_YES_MAX} 次还在，"
+                             f"先不理会，继续找 personal_share")
+
+        # 3. 检测并点击 personal_share，最多 PERSONAL_SHARE_CLICKS 次
         for i in range(1, PERSONAL_SHARE_CLICKS + 1):
             if self.should_stop('每日分享'):
                 return False
