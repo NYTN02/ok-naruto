@@ -200,11 +200,18 @@ class MissionTask(GuideNavTask):
         所以调用方要先点 popu_cancel 退回主页面再重跑。
         """
         # 检测有没有"接取"
+        before = self.screen_thumb()
         if not self.click_ocr_text("接取", time_out=1.0):
             return NO_MORE
 
         self._last_round_had_attempt = True
         self.sleep(1.2)  # 等待界面切换
+
+        # 点了「接取」但画面没变化 -> 再点一次（用户建议）
+        if not self.screen_changed(before, self.screen_thumb()):
+            self.log_warning("点了「接取」但画面没变化，再点一次")
+            self.click_ocr_text("接取", time_out=1.0)
+            self.sleep(1.2)
 
         # 点击固定位置 rel(0.686, 0.210)
         self.click_relative(0.686, 0.210)
