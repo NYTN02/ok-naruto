@@ -15,6 +15,7 @@ CHALLENGE_RETRY = 1
 # 用「胜败乃兵」做关键词（子串匹配），比整句更抗 OCR 误读。
 LOSE_KEYWORD = '胜败乃兵'
 LOSE_WAIT = 1.0        # 点掉之后的等待（用户指定 1 秒）
+LOSE_MAX_CLICKS = 10  # 最多点几次，防止一直匹配到同一处死循环
 
 # 「进入积分赛并展开对手列表」失败（没检测到并点到 pointrace_challenge）时，
 # 回主页面重新进入的额外重试次数。用户要求只重试一次。
@@ -217,17 +218,31 @@ class PointRaceTask(GuideNavTask):
     def wait_challenge_result(self, max_polls=30, interval=2.0):
         """挑战后轮询等待结果：以下任一出现都算这一场结束了。
 
-          * 「胜败乃兵家常事」—— **战斗失败**的提示，点掉它才会回到挑战界面
+          * 「胜败乃兵家常事」—— **战斗失败**的提示，**循环点掉**（可能连弹多次）
+            直到它消失，之后才会回到挑战界面
           * '当前积分' / '确定' —— 正常结算
 
         默认 30 次 × 2 秒 ≈ 60 秒。
         """
         for attempt in range(max_polls):
-            # 战斗失败：先弹「胜败乃兵家常事」，点掉它才会回到挑战界面
-            if self.click_ocr_text(LOSE_KEYWORD, time_out=1.0):
-                self.log_info(f"第 {attempt + 1} 次轮询识别到「胜败乃兵家常事」"
-                              f"（这一场没赢），点掉它")
+            # 战斗失败：弹「胜败乃兵家常事」，点掉它才会回到挑战界面。
+            # 可能连续弹多次 —— 点一次、等 1 秒、再看，直到它消失（用户指定）。
+            lose_clicks = 0
+            for k in range(1, LOSE_MAX_CLICKS + 1):
+                if self.should_stop('积分赛挑战'):
+                    return False
+                if not self.click_ocr_text(LOSE_KEYWORD, time_out=1.0):
+                    break
+                lose_clicks += 1
+                self.log_info(f"第 {k}/{LOSE_MAX_CLICKS} 次点击「胜败乃兵家常事」"
+                              f"（这一场没赢）")
                 self.sleep(LOSE_WAIT)
+            if lose_clicks:
+                if lose_clicks >= LOSE_MAX_CLICKS:
+                    self.log_warning(f"「胜败乃兵家常事」连点 {LOSE_MAX_CLICKS} 次还在，"
+                                     f"先继续，交给后面的流程处理")
+                else:
+                    self.log_info(f"「胜败乃兵家常事」已消失（共点了 {lose_clicks} 次）")
                 return True
 
             if self.click_ocr_text("当前积分", time_out=1.0):
