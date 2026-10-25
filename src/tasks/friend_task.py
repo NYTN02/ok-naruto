@@ -41,8 +41,11 @@ class FriendTask(PageNavTask):
         # ========== 第二阶段：QQ 好友 ==========
         self.sleep(1.0)
 
-        if not self.wait_click('friend_qqfriend', threshold=0.8, time_out=5):
-            self.log_error("未找到 QQ 好友标签")
+        # 好友来源可能是 QQ，也可能是微信 —— 两个标签页都试，先 QQ 再微信
+        if not (self.wait_click('friend_qqfriend', threshold=0.8, time_out=3)
+                or self.wait_click('friend_wechatfriend', threshold=0.8,
+                                   time_out=5)):
+            self.log_error("未找到好友标签（QQ / 微信都没找到）")
             self._exit()
             return
         self.sleep(1.0)

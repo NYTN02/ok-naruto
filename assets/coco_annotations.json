@@ -251,6 +251,12 @@
             "file_name": "images/0.png",
             "width": 1600,
             "height": 900
+        },
+        {
+            "id": 48,
+            "file_name": "images/1.png",
+            "width": 1600,
+            "height": 900
         }
     ],
     "annotations": [
@@ -1475,6 +1481,19 @@
             ],
             "area": 23632,
             "iscrowd": 0
+        },
+        {
+            "id": 95,
+            "image_id": 48,
+            "category_id": 95,
+            "bbox": [
+                112,
+                363,
+                157,
+                89
+            ],
+            "area": 13973,
+            "iscrowd": 0
         }
     ],
     "categories": [
@@ -1946,6 +1965,11 @@
         {
             "id": 94,
             "name": "mission_none",
+            "supercategory": ""
+        },
+        {
+            "id": 95,
+            "name": "friend_wechatfriend",
             "supercategory": ""
         }
     ]
