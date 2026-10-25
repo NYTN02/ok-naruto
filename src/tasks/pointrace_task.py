@@ -16,6 +16,8 @@ CHALLENGE_RETRY = 1
 LOSE_KEYWORD = '胜败乃兵'
 LOSE_WAIT = 1.0        # 点掉之后的等待（用户指定 1 秒）
 LOSE_MAX_CLICKS = 10  # 最多点几次，防止一直匹配到同一处死循环
+# 「胜败乃兵家常事」那个界面上要点的位置（用户实测：点文字本身不管用）
+LOSE_CLICK_REL = (0.917, 0.100)
 
 # 「进入积分赛并展开对手列表」失败（没检测到并点到 pointrace_challenge）时，
 # 回主页面重新进入的额外重试次数。用户要求只重试一次。
@@ -231,12 +233,15 @@ class PointRaceTask(GuideNavTask):
             for k in range(1, LOSE_MAX_CLICKS + 1):
                 if self.should_stop('积分赛挑战'):
                     return False
-                if not self.click_ocr_text(LOSE_KEYWORD, time_out=1.0):
+                # 先只检测文字（不点它），没有了就退出循环
+                if not self.has_ocr_text(LOSE_KEYWORD, time_out=1.0):
                     break
+                # 点的是**固定坐标**（用户说明：点文字本身不管用）
+                self.click_relative(*LOSE_CLICK_REL)
                 lose_clicks += 1
                 self.log_info(f"第 {k}/{LOSE_MAX_CLICKS} 次点击「胜败乃兵家常事」"
-                              f"（这一场没赢）")
-                self.sleep(LOSE_WAIT)
+                              f"（这一场没赢）点 rel{LOSE_CLICK_REL}")
+                self.sleep(LOSE_WAIT)      # 等 1 秒再回去检测
             if lose_clicks:
                 if lose_clicks >= LOSE_MAX_CLICKS:
                     self.log_warning(f"「胜败乃兵家常事」连点 {LOSE_MAX_CLICKS} 次还在，"
@@ -452,6 +457,16 @@ class PointRaceTask(GuideNavTask):
         return all(hasattr(r, a) for a in ('x', 'y', 'width', 'height'))
 
     # ================= 通用工具 =================
+
+    def has_ocr_text(self, keyword, time_out=1.0):
+        """**只检测**有没有这段文字，不点击。
+
+        click_ocr_text 会顺手把文字点一下；「胜败乃兵家常事」这个界面
+        要点的不是文字本身（用户实测点文字不管用），所以这里拆成一个
+        纯检测的版本。
+        """
+        boxes = self.wait_ocr(match=[keyword], time_out=time_out)
+        return bool(boxes)
 
     def click_ocr_text(self, keyword, time_out=0.5):
         boxes = self.wait_ocr(match=[keyword], time_out=time_out)
