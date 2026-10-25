@@ -132,6 +132,13 @@ class MissionTask(GuideNavTask):
             if self.click_ocr_text(CONFIRM_TEXT, time_out=CONFIRM_TIMEOUT):
                 self.log_info("[领奖] 点击了「确定」（一键领取所有奖励）")
                 self.sleep(CONFIRM_WAIT)
+                # ⚠️ 确定之后会弹**物品展示界面**，必须关掉它：
+                # 否则它会挡住后面的「接取」——接取点在这个界面上，
+                # 后面等不到「出发」就判失败，白重进一轮。
+                # 关闭位置和"直接弹展示界面"那种情况一样，用右上角 CLOSE_REL。
+                self.log_info(f"[领奖] 关掉物品展示界面 rel{CLOSE_REL}")
+                self.click_relative(*CLOSE_REL)
+                self.sleep(CLOSE_WAIT)
                 continue
 
             # B. 没有确认框但画面变了 -> 直接弹了物品展示界面，点右上角关掉
