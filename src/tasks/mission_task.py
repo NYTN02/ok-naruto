@@ -17,6 +17,11 @@ ACCEPT_ATTEMPTS = 3
 # 一轮里最多尝试接取几个任务
 MAX_ACCEPT_LOOP = 15
 
+# 点完「出发」后先等这么久，确认 mission_go 真的消失了（用户指定 1 秒）
+# 游戏偶尔点了没反应，不验证就会误报成功接取 1 个。
+ACCEPT_VERIFY_WAIT = 1.0
+ACCEPT_RETURN_WAIT = 0.8   # 确认消失后再等这么久，让它走完切屏
+
 # ---------------------------------------------------------------------------
 # 领奖励（用户指定的流程）
 #
@@ -238,7 +243,16 @@ class MissionTask(GuideNavTask):
                 pass
             return FAILED
 
-        self.sleep(1.8)  # 等待出发与返回
+        # 点完「出发」等 1 秒，确认它真的消失了（用户指定）
+        # 游戏偶尔会"点了没反应"——那时候 mission_go 还在画面上，
+        # 如果直接当成成功，后面就会误报"成功接取 1 个"。
+        self.sleep(ACCEPT_VERIFY_WAIT)
+        if self.find_one('mission_go', threshold=0.8):
+            self.log_warning("点了「出发」但它还在画面上 —— 这一下没生效，"
+                             "判定接取失败")
+            return FAILED
+
+        self.sleep(ACCEPT_RETURN_WAIT)  # 等出发返回
         return ACCEPTED
 
     # ---------------- 通用工具方法 ----------------
