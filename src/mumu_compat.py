@@ -346,8 +346,9 @@ def _patch_keep_alive_check():
         value = deep_get(data, keys='customer.app_keptlive', default=None)
         if str(value).lower() == 'true':
             logger.error(
-                '请在 MuMu 模拟器设置里关闭「后台挂机时保活运行」'
+                '请在 MuMu 模拟器设置 →「其他」里关闭「应用保活」'
                 '（Please turn off "Keep alive in the background"）')
+            + '；或把截图方式改成「ADB截图」'
             raise Exception(
                 'Please turn off enable background keep alive in MuMuPlayer settings')
         return True
