@@ -20,10 +20,15 @@ PERSONAL_SHARE_RECLICK_TIMEOUT = 3
 # 用户要求的是"点完等 1 秒再检测"，这里的 2 秒只是给动画留点余量。
 SHARE_TARGET_TIMEOUT = 2.0
 
-# 进分享页后可能先弹 weeklyrendao_yes —— 点掉它，personal_share 才会出来。
-WEEKLY_YES_TIMEOUT = 1.5    # 找 weeklyrendao_yes 等多久（没有就别干等）
-WEEKLY_YES_WAIT = 1.0       # 点完之后等多久
-WEEKLY_YES_MAX = 10         # 最多点几次，防止死循环
+# 分享页打开后，如果不是直接出现 personal_share，可能先走「称号」引导页：
+#   本周忍道称号 -> 本次获得格斗称号（一般这个顺序，也可能单独出现）
+# 每页点「下一步」/「确定」翻过去，直到 personal_share 出现。
+# 用短一点的子串做 OCR 匹配，抗误读。
+TITLE_TEXTS = ('本周忍道', '格斗称号')
+NEXT_TEXTS = ('下一步', '确定')
+TITLE_STEP_TIMEOUT = 1.0     # 每轮找称号/下一步各等多久
+TITLE_STEP_WAIT = 1.0        # 点完「下一步」/「确定」后等多久（用户指定）
+TITLE_STEP_MAX = 10          # 最多翻几页，防止死循环
 # 点中分享渠道之后等目标 App 起来的时间
 SHARE_APP_WAIT = 3.0
 
@@ -47,6 +52,8 @@ class ShareTask(PageNavTask):
         用户指定的流程：
 
             点左上角分享入口，进入分享页面（一轮只点一次）
+              若没出现 personal_share，先处理「称号」引导页
+                （本周忍道称号 / 本次获得格斗称号 -> 点「下一步」/「确定」）
               检测并点击 personal_share（最多 3 次）
                 每次点完等 1 秒，检测有没有 share_qq / share_wechat
                   有   -> 点它，继续后面的收尾步骤
@@ -90,23 +97,42 @@ class ShareTask(PageNavTask):
         self.log_info("已点击分享入口，进入分享页面")
         self.sleep(SHARE_ENTRY_WAIT)
 
-        # 2. 若出现 weeklyrendao_yes，先点掉它，直到它消失
-        #    （用户说明：点掉之后 personal_share 才会出来）
-        weekly_clicks = 0
-        for k in range(1, WEEKLY_YES_MAX + 1):
+        # 2. personal_share 没出来时，可能是「称号」引导页
+        #    （本周忍道称号 / 本次获得格斗称号）—— 逐页点「下一步」/「确定」翻过去。
+        #    两者都没有、personal_share 也没有 -> 说明分享页没打开，回主页面重试。
+        for k in range(1, TITLE_STEP_MAX + 1):
             if self.should_stop('每日分享'):
                 return False
-            if not self.safe_click_feature('weeklyrendao_yes', threshold=0.8,
-                                           time_out=WEEKLY_YES_TIMEOUT):
-                if weekly_clicks:
-                    self.log_info(f"weeklyrendao_yes 已经消失（共点了 {weekly_clicks} 次）")
+
+            # personal_share 已经出来了，正常走后面的流程
+            if self.find_one('personal_share', threshold=0.8):
+                if k > 1:
+                    self.log_info(f"personal_share 出来了（翻了 {k - 1} 页称号）")
                 break
-            weekly_clicks += 1
-            self.log_info(f"第 {k}/{WEEKLY_YES_MAX} 次点击 weeklyrendao_yes")
-            self.sleep(WEEKLY_YES_WAIT)
-        if weekly_clicks >= WEEKLY_YES_MAX:
-            self.log_warning(f"weeklyrendao_yes 连点 {WEEKLY_YES_MAX} 次还在，"
-                             f"先不理会，继续找 personal_share")
+
+            title = next((t for t in TITLE_TEXTS
+                          if self.ocr_has_text(t, time_out=TITLE_STEP_TIMEOUT)), None)
+            if title is None:
+                # 既没有 personal_share，也没有称号页 -> 分享页没打开
+                self.log_warning("既没出现 personal_share 也没有称号页"
+                                 "（本周忍道 / 格斗称号），本轮放弃，回主页面重试")
+                return False
+
+            clicked = next((t for t in NEXT_TEXTS
+                            if self.ocr_click_text(t, time_out=TITLE_STEP_TIMEOUT)), None)
+            if clicked is None:
+                self.log_warning(f"看到「{title}」但没找到「下一步」/「确定」")
+                return False
+            self.log_info(f"第 {k}/{TITLE_STEP_MAX} 页：识别到「{title}」，点击「{clicked}」")
+            self.sleep(TITLE_STEP_WAIT)
+
+            # 点完「下一步」/「确定」后若 personal_share 出来了，直接跳出循环
+            if self.find_one('personal_share', threshold=0.8):
+                self.log_info(f"点完「{clicked}」后 personal_share 出来了，退出称号页循环")
+                break
+        else:
+            self.log_warning(f"翻了 {TITLE_STEP_MAX} 页还没出现 personal_share，本轮放弃")
+            return False
 
         # 3. 检测并点击 personal_share，最多 PERSONAL_SHARE_CLICKS 次
         for i in range(1, PERSONAL_SHARE_CLICKS + 1):
@@ -137,6 +163,22 @@ class ShareTask(PageNavTask):
                              f"{' / '.join(SHARE_TARGETS)}")
 
         return False
+
+    # ================= OCR 助手 =================
+
+    def ocr_has_text(self, keyword, time_out=1.0):
+        """只检测有没有这段文字，不点击。"""
+        boxes = self.wait_ocr(match=[keyword], time_out=time_out)
+        return bool(boxes)
+
+    def ocr_click_text(self, keyword, time_out=1.0):
+        """OCR 找到这段文字就点它，找不到返回 False。"""
+        boxes = self.wait_ocr(match=[keyword], time_out=time_out)
+        if not boxes:
+            return False
+        box = boxes[0] if isinstance(boxes, list) else boxes
+        self.click_box(box)
+        return True
 
     def click_share_target(self, time_out=SHARE_TARGET_TIMEOUT):
         """检测并点击分享渠道按钮，返回点中的是哪个；都没找到返回 None。
