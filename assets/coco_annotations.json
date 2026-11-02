@@ -257,6 +257,18 @@
             "file_name": "images/1.png",
             "width": 1600,
             "height": 900
+        },
+        {
+            "id": 49,
+            "file_name": "images/2.png",
+            "width": 1600,
+            "height": 900
+        },
+        {
+            "id": 50,
+            "file_name": "images/3.png",
+            "width": 1600,
+            "height": 900
         }
     ],
     "annotations": [
@@ -1494,6 +1506,58 @@
             ],
             "area": 13973,
             "iscrowd": 0
+        },
+        {
+            "id": 96,
+            "image_id": 50,
+            "category_id": 96,
+            "bbox": [
+                635,
+                169,
+                309,
+                66
+            ],
+            "area": 20394,
+            "iscrowd": 0
+        },
+        {
+            "id": 97,
+            "image_id": 49,
+            "category_id": 97,
+            "bbox": [
+                655,
+                156,
+                273,
+                72
+            ],
+            "area": 19656,
+            "iscrowd": 0
+        },
+        {
+            "id": 98,
+            "image_id": 49,
+            "category_id": 98,
+            "bbox": [
+                704,
+                802,
+                181,
+                66
+            ],
+            "area": 11946,
+            "iscrowd": 0
+        },
+        {
+            "id": 99,
+            "image_id": 50,
+            "category_id": 99,
+            "bbox": [
+                445,
+                806,
+                171,
+                60
+            ],
+            "area": 10260,
+            "iscrowd": 0
         }
     ],
     "categories": [
@@ -1970,6 +2034,26 @@
         {
             "id": 95,
             "name": "friend_wechatfriend",
+            "supercategory": ""
+        },
+        {
+            "id": 96,
+            "name": "share_gedouchenghao",
+            "supercategory": ""
+        },
+        {
+            "id": 97,
+            "name": "share_rendaochenghao",
+            "supercategory": ""
+        },
+        {
+            "id": 98,
+            "name": "rendaochenghao_next",
+            "supercategory": ""
+        },
+        {
+            "id": 99,
+            "name": "gedouchenghao_confirm",
             "supercategory": ""
         }
     ]

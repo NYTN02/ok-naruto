@@ -22,12 +22,15 @@ SHARE_TARGET_TIMEOUT = 2.0
 
 # 分享页打开后，如果不是直接出现 personal_share，可能先走「称号」引导页：
 #   本周忍道称号 -> 本次获得格斗称号（一般这个顺序，也可能单独出现）
-# 每页点「下一步」/「确定」翻过去，直到 personal_share 出现。
-# 用短一点的子串做 OCR 匹配，抗误读。
-TITLE_TEXTS = ('本周忍道', '格斗称号')
-NEXT_TEXTS = ('下一步', '确定')
-TITLE_STEP_TIMEOUT = 1.0     # 每轮找称号/下一步各等多久
-TITLE_STEP_WAIT = 1.0        # 点完「下一步」/「确定」后等多久（用户指定）
+# 用模板识别页面，点对应的按钮翻过去，直到 personal_share 出现。
+#   share_rendaochenghao -> rendaochenghao_next
+#   share_gedouchenghao  -> gedouchenghao_confirm
+TITLE_STEPS = (
+    ('share_rendaochenghao', 'rendaochenghao_next'),
+    ('share_gedouchenghao', 'gedouchenghao_confirm'),
+)
+TITLE_STEP_TIMEOUT = 1.0     # 找页面模板 / 点按钮各等多久
+TITLE_STEP_WAIT = 1.0        # 点完之后等多久（用户指定）
 TITLE_STEP_MAX = 10          # 最多翻几页，防止死循环
 # 点中分享渠道之后等目标 App 起来的时间
 SHARE_APP_WAIT = 3.0
@@ -53,7 +56,8 @@ class ShareTask(PageNavTask):
 
             点左上角分享入口，进入分享页面（一轮只点一次）
               若没出现 personal_share，先处理「称号」引导页
-                （本周忍道称号 / 本次获得格斗称号 -> 点「下一步」/「确定」）
+                （share_rendaochenghao -> rendaochenghao_next
+                  share_gedouchenghao  -> gedouchenghao_confirm）
               检测并点击 personal_share（最多 3 次）
                 每次点完等 1 秒，检测有没有 share_qq / share_wechat
                   有   -> 点它，继续后面的收尾步骤
@@ -110,25 +114,27 @@ class ShareTask(PageNavTask):
                     self.log_info(f"personal_share 出来了（翻了 {k - 1} 页称号）")
                 break
 
-            title = next((t for t in TITLE_TEXTS
-                          if self.ocr_has_text(t, time_out=TITLE_STEP_TIMEOUT)), None)
-            if title is None:
+            # 用模板判断是哪个称号页（本周忍道 / 本次获得格斗）
+            step = next(((page, btn) for page, btn in TITLE_STEPS
+                         if self.find_one(page, threshold=0.8)), None)
+            if step is None:
                 # 既没有 personal_share，也没有称号页 -> 分享页没打开
                 self.log_warning("既没出现 personal_share 也没有称号页"
-                                 "（本周忍道 / 格斗称号），本轮放弃，回主页面重试")
+                                 "（rendaochenghao / gedouchenghao），"
+                                 "本轮放弃，回主页面重试")
                 return False
 
-            clicked = next((t for t in NEXT_TEXTS
-                            if self.ocr_click_text(t, time_out=TITLE_STEP_TIMEOUT)), None)
-            if clicked is None:
-                self.log_warning(f"看到「{title}」但没找到「下一步」/「确定」")
+            page, btn = step
+            if not self.safe_click_feature(btn, threshold=0.8,
+                                           time_out=TITLE_STEP_TIMEOUT):
+                self.log_warning(f"看到 {page}，但没点到「{btn}」")
                 return False
-            self.log_info(f"第 {k}/{TITLE_STEP_MAX} 页：识别到「{title}」，点击「{clicked}」")
+            self.log_info(f"第 {k}/{TITLE_STEP_MAX} 页：{page}，点击 {btn}")
             self.sleep(TITLE_STEP_WAIT)
 
-            # 点完「下一步」/「确定」后若 personal_share 出来了，直接跳出循环
+            # 点完之后若 personal_share 出来了，直接跳出循环
             if self.find_one('personal_share', threshold=0.8):
-                self.log_info(f"点完「{clicked}」后 personal_share 出来了，退出称号页循环")
+                self.log_info(f"点完 {btn} 后 personal_share 出来了，退出称号页循环")
                 break
         else:
             self.log_warning(f"翻了 {TITLE_STEP_MAX} 页还没出现 personal_share，本轮放弃")
