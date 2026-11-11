@@ -220,34 +220,16 @@ class PointRaceTask(GuideNavTask):
     def wait_challenge_result(self, max_polls=30, interval=2.0):
         """挑战后轮询等待结果：以下任一出现都算这一场结束了。
 
-          * 「胜败乃兵家常事」—— **战斗失败**的提示，**循环点掉**（可能连弹多次）
-            直到它消失，之后才会回到挑战界面
+          * 输了：先出现一个「确定」按钮 -> 点它 -> 出现「胜败乃兵家常事」
+            -> 点掉它 -> 回到带 pointrace_challenge 的挑战界面
+            （「胜败乃兵家常事」可能连弹多次，所以要循环点到它消失）
           * '当前积分' / '确定' —— 正常结算
 
         默认 30 次 × 2 秒 ≈ 60 秒。
         """
         for attempt in range(max_polls):
-            # 战斗失败：弹「胜败乃兵家常事」，点掉它才会回到挑战界面。
-            # 可能连续弹多次 —— 点一次、等 1 秒、再看，直到它消失（用户指定）。
-            lose_clicks = 0
-            for k in range(1, LOSE_MAX_CLICKS + 1):
-                if self.should_stop('积分赛挑战'):
-                    return False
-                # 先只检测文字（不点它），没有了就退出循环
-                if not self.has_ocr_text(LOSE_KEYWORD, time_out=1.0):
-                    break
-                # 点的是**固定坐标**（用户说明：点文字本身不管用）
-                self.click_relative(*LOSE_CLICK_REL)
-                lose_clicks += 1
-                self.log_info(f"第 {k}/{LOSE_MAX_CLICKS} 次点击「胜败乃兵家常事」"
-                              f"（这一场没赢）点 rel{LOSE_CLICK_REL}")
-                self.sleep(LOSE_WAIT)      # 等 1 秒再回去检测
-            if lose_clicks:
-                if lose_clicks >= LOSE_MAX_CLICKS:
-                    self.log_warning(f"「胜败乃兵家常事」连点 {LOSE_MAX_CLICKS} 次还在，"
-                                     f"先继续，交给后面的流程处理")
-                else:
-                    self.log_info(f"「胜败乃兵家常事」已消失（共点了 {lose_clicks} 次）")
+            # 战斗失败：弹「胜败乃兵家常事」，点掉它才会回到挑战界面
+            if self.clear_lose_prompt():
                 return True
 
             if self.click_ocr_text("当前积分", time_out=1.0):
@@ -255,16 +237,57 @@ class PointRaceTask(GuideNavTask):
                 self.sleep(1.0)
                 if not self.click_ocr_text("确定", time_out=5):
                     self.log_warning("未找到'确定'按钮")
+                self.sleep(LOSE_WAIT)
+                self.clear_lose_prompt()
                 return True
 
             if self.click_ocr_text("确定", time_out=1.0):
                 self.log_info(f"第 {attempt + 1} 次轮询识别到'确定'")
+                self.sleep(LOSE_WAIT)
+                # 输了的话，点掉「确定」之后才弹「胜败乃兵家常事」——
+                # 所以要在这里再清一次，否则下一轮进不去选对手界面。
+                self.clear_lose_prompt()
                 return True
 
             self.sleep(interval)
 
         self.log_warning(f"{max_polls} 次轮询内未检测到'当前积分'或'确定'")
         return False
+
+    # ================= 失败提示 =================
+
+    def clear_lose_prompt(self):
+        """点掉「胜败乃兵家常事」，返回 True 表示这一场确实输了且已处理完。
+
+        输了之后的顺序（用户说明）:
+            挑战 -> 输了 -> 出现「确定」-> 点它 -> 出现「胜败乃兵家常事」
+            -> 点掉它 -> 回到带 pointrace_challenge 的挑战界面
+
+        所以这个方法可能被调用两次：轮询开头一次（直接弹提示的情况），
+        点掉「确定」之后再一次（先出确定、再出提示的情况）。
+        """
+        lose_clicks = 0
+        for k in range(1, LOSE_MAX_CLICKS + 1):
+            if self.should_stop('积分赛挑战'):
+                break
+            # 先只检测文字（不点它），没有了就退出循环
+            if not self.has_ocr_text(LOSE_KEYWORD, time_out=1.0):
+                break
+            # 点的是**固定坐标**（用户说明：点文字本身不管用）
+            self.click_relative(*LOSE_CLICK_REL)
+            lose_clicks += 1
+            self.log_info(f"第 {k}/{LOSE_MAX_CLICKS} 次点击「胜败乃兵家常事」"
+                          f"（这一场没赢）点 rel{LOSE_CLICK_REL}")
+            self.sleep(LOSE_WAIT)      # 等 1 秒再回去检测
+
+        if not lose_clicks:
+            return False
+        if lose_clicks >= LOSE_MAX_CLICKS:
+            self.log_warning(f"「胜败乃兵家常事」连点 {LOSE_MAX_CLICKS} 次还在，"
+                             f"先继续，交给后面的流程处理")
+        else:
+            self.log_info(f"「胜败乃兵家常事」已消失（共点了 {lose_clicks} 次）")
+        return True
 
     # ================= 挑战次数检测 =================
 
