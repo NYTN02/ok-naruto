@@ -17,6 +17,8 @@ LOSE_KEYWORD = '胜败乃兵'
 LOSE_WAIT = 1.0        # 点掉之后的等待（用户指定 1 秒）
 LOSE_MAX_CLICKS = 10  # 最多点几次，防止一直匹配到同一处死循环
 # 「胜败乃兵家常事」那个界面上要点的位置（用户实测：点文字本身不管用）
+# 点掉「确定」之后，等「胜败乃兵家常事」淡入最多几轮（每轮 1 秒）
+LOSE_APPEAR_LOOPS = 4
 LOSE_CLICK_REL = (0.917, 0.100)
 
 # 「进入积分赛并展开对手列表」失败（没检测到并点到 pointrace_challenge）时，
@@ -205,7 +207,11 @@ class PointRaceTask(GuideNavTask):
                 self.sleep(1.5)
                 continue
 
-            # 两个都没有：多半还在切画面（结算/淡出），等一下再看
+            # 两个都没有：可能是「胜败乃兵家常事」还盖在画面上，
+            # 也可能是还在切画面（结算/淡出）—— 先试着点掉提示，再等一下。
+            if self.clear_lose_prompt():
+                self.log_info(f"[选对手] 第 {i} 次：点掉了「胜败乃兵家常事」，重新看界面")
+                continue
             self.log_warning(f"[选对手] 第 {i} 次：既没有 {POWER_FEATURE}，"
                              f"也没有 pointrace_challenge，等待画面切换")
             self.sleep(1.5)
@@ -244,9 +250,9 @@ class PointRaceTask(GuideNavTask):
             if self.click_ocr_text("确定", time_out=1.0):
                 self.log_info(f"第 {attempt + 1} 次轮询识别到'确定'")
                 self.sleep(LOSE_WAIT)
-                # 输了的话，点掉「确定」之后才弹「胜败乃兵家常事」——
-                # 所以要在这里再清一次，否则下一轮进不去选对手界面。
-                self.clear_lose_prompt()
+                # 输了的话，点掉「确定」之后才弹「胜败乃兵家常事」，
+                # 而且它要淡入一会儿才看得见 —— 所以这里多等几轮。
+                self.clear_lose_prompt(wait_loops=LOSE_APPEAR_LOOPS)
                 return True
 
             self.sleep(interval)
@@ -256,16 +262,26 @@ class PointRaceTask(GuideNavTask):
 
     # ================= 失败提示 =================
 
-    def clear_lose_prompt(self):
+    def clear_lose_prompt(self, wait_loops=1):
         """点掉「胜败乃兵家常事」，返回 True 表示这一场确实输了且已处理完。
 
         输了之后的顺序（用户说明）:
             挑战 -> 输了 -> 出现「确定」-> 点它 -> 出现「胜败乃兵家常事」
             -> 点掉它 -> 回到带 pointrace_challenge 的挑战界面
 
-        所以这个方法可能被调用两次：轮询开头一次（直接弹提示的情况），
-        点掉「确定」之后再一次（先出确定、再出提示的情况）。
+        ``wait_loops``：先最多等几轮（每轮 1 秒）它出现。
+        点掉「确定」之后它要淡入一小会儿才看得见 —— 只查一次会查空，
+        于是后面进不去选对手界面（2026-11-12 日志就是这么挂的）。
         """
+        # 先等它出现（点「确定」之后需要一点时间才淡入）
+        appeared = False
+        for _ in range(max(1, wait_loops)):
+            if self.has_ocr_text(LOSE_KEYWORD, time_out=1.0):
+                appeared = True
+                break
+        if not appeared:
+            return False
+
         lose_clicks = 0
         for k in range(1, LOSE_MAX_CLICKS + 1):
             if self.should_stop('积分赛挑战'):
